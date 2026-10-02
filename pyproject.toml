@@ -7,7 +7,8 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "pandas>=2.2",
     "pyarrow>=16",
-    "numpy>=1.26",
+    "numpy>=2.0",
+    "scipy>=1.13",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "sqlalchemy>=2.0",
@@ -29,7 +30,7 @@ ml = [
     "shap>=0.45",
 ]
 survival = ["lifelines>=0.29"]
-uplift = ["scikit-uplift>=0.5", "econml>=0.15"]
+uplift = []  # learners and metrics are implemented in-house (retentioniq.models.uplift)
 deep = ["torch>=2.3"]
 api = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "prometheus-client>=0.20"]
 monitoring = ["evidently>=0.4"]
@@ -63,7 +64,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "PTH", "RUF", "PD", "NPY"]
-ignore = ["PD901"]
+ignore = []
 
 [tool.mypy]
 python_version = "3.11"
@@ -73,8 +74,16 @@ mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["lightgbm.*", "xgboost.*", "lifelines.*", "sklift.*", "econml.*", "shap.*", "mlflow.*"]
+module = ["lightgbm.*", "xgboost.*", "lifelines.*", "shap.*", "mlflow.*", "sklearn.*", "joblib.*",
+          "torch.*", "scipy.*", "evidently.*"]
 ignore_missing_imports = true
+follow_untyped_imports = false
+
+# Modelling code wraps untyped ML libraries; keep strictness but allow Any to flow through them.
+[[tool.mypy.overrides]]
+module = ["retentioniq.models.*", "retentioniq.training.*", "retentioniq.analytics.*"]
+warn_return_any = false
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -83,3 +92,11 @@ markers = [
     "integration: requires docker services (postgres, mlflow)",
     "data: requires raw datasets in data/raw",
 ]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

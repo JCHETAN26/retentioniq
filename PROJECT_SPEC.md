@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.1 — frozen before any modeling.**
+Status: **v0.2 — frozen before any modeling.**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -88,10 +88,10 @@ with `timestamp < t_c` may be used for features.
 
 | Parameter | Primary value | Sensitivity values |
 |-----------|---------------|--------------------|
-| Observation window | 60 days before `t_c` | 30, 90 |
-| Prediction (outcome) window | 30 days after `t_c` | 14, 45 |
+| Observation window | 30 days before `t_c` (tenure uses all history before `t_c`) | 21 |
+| Prediction (outcome) window | 30 days after `t_c` | 21 |
 | Session gap | 30 minutes without events starts a new session | 15, 60 |
-| Eligible population | ≥ 2 sessions in the observation window **and** ≥ 1 event in the 30 days before `t_c` | ≥ 1 session; ≥ 3 sessions |
+| Eligible population | ≥ 2 sessions in the observation window | ≥ 1 session; ≥ 3 sessions |
 
 **Label:** `inactive = 1` if the visitor has **zero sessions** in
 `[t_c, t_c + 30d)`, otherwise `0`.
@@ -101,18 +101,29 @@ Secondary label, reported but not used for model selection:
 window, among visitors who had at least one transaction in the observation
 window.
 
-**Snapshots:** we build several cutoffs, spaced 14 days apart, starting when the
-first full observation window is available and ending at the last date that
-still leaves a full 30-day outcome window. One visitor may appear in more than
-one snapshot. Whenever we compute confidence intervals, we treat each visitor
-as one group (§7.2).
+**Snapshots:** cutoffs are derived from the data end `T_end` (floored to a day)
+and the prediction window `h`, so that every training label is observable before
+the cutoff it is evaluated at:
+
+- test cutoff = `T_end − h`
+- validation cutoff = `test − h`
+- training cutoffs = `validation − h − {0, 7, 14}` days, dropping any whose
+  observation window would start before the data does
+
+One visitor may appear in more than one snapshot. Whenever we compute confidence
+intervals, we treat each visitor as one group (§7.2). Models are fit on the
+training snapshots only; the validation snapshot is used for tuning, early
+stopping and calibration, and is never refit on, so calibration stays
+out-of-sample.
 
 **Edge censoring:** the dataset ends at a fixed date `T_end`. Any cutoff with
 `t_c + 30d > T_end` is excluded from labeled data.
 
 Sensitivity analysis: we rerun the M1 and M4 models with every sensitivity value
 and report how the base rate and PR-AUC change. A conclusion counts as robust
-only if the ranking of models holds under every sensitivity setting.
+only if the ranking of models holds under every sensitivity setting. Longer
+windows (60/90-day observation, 45-day prediction) are infeasible because the
+dataset spans only about 138 days (see Change Log, v0.2).
 
 ### 4.2 Survival (Dataset A)
 
@@ -178,15 +189,15 @@ Every customer falls into exactly one segment. A unit test enforces this.
 
 ### 5.1 Temporal validation
 
-- Snapshots are split by cutoff date, never randomly:
-  - **train:** earliest cutoffs
-  - **validation:** the next cutoff(s), used for hyperparameters, early stopping,
+- Snapshots are split by cutoff date (§4.1), never randomly:
+  - **train:** the training cutoffs
+  - **validation:** the validation cutoff, used for hyperparameters, early stopping,
     and calibration fitting
-  - **test:** the last cutoff or cutoffs, touched **once** per model family after
+  - **test:** the test cutoff, touched **once** per model family after
     all tuning is finished
-- No visitor's outcome window may overlap a later split's feature window in a way
-  that leaks information. Concretely, we require
-  `train cutoff + 30d ≤ validation cutoff`.
+- Every label used for fitting must be observable at the cutoff the model is
+  evaluated at: `train cutoff + h ≤ validation cutoff` and
+  `validation cutoff + h ≤ test cutoff`.
 - The exact cutoff dates are written to `artifacts/split_manifest.json` the
   first time features are built, and that file is versioned.
 
@@ -392,3 +403,4 @@ level, and hardware are recorded in `serving_benchmark.json`.
 | Version | Date | Change | Reason |
 |---------|------|--------|--------|
 | 0.1 | 2026-10-02 | Initial contract | — |
+| 0.2 | 2026-10-02 | §4.1: observation window 60 → 30 days; sensitivity values now 21-day observation and 21-day prediction; eligibility drops the now-redundant recent-event rule; cutoffs derived from `T_end` and `h`. §5.1 split rule restated to match. | With a 60-day observation window and non-overlapping train/validation/test label windows, no training cutoff fits inside RetailRocket's ~138-day span. Changed before any model was trained. |

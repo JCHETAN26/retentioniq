@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: stg_online_retail__transactions
+    description: Invoice lines from UCI Online Retail II, de-duplicated across source sheets.
+    columns:
+      - name: line_id
+        tests: [unique, not_null]
+      - name: invoice
+        tests: [not_null]
+      - name: invoice_ts
+        tests: [not_null]
+    tests:
+      - expression_is_true:
+          expression: "not is_cancellation or quantity < 0"
+          config: {severity: warn}

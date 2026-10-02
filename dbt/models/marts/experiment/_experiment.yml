@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: mart_experiment_results
+    columns:
+      - name: treatment
+        tests: [unique, not_null]
+  - name: mart_uplift_features
+    description: Leakage-safe feature view for uplift modelling. Contains no `exposure` column.

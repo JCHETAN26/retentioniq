@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: dim_date
+    columns:
+      - name: date_day
+        tests: [unique, not_null]
+  - name: dim_customer
+    description: Online Retail II customers (dataset B only; never joined to A or C).
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+  - name: dim_product
+    columns:
+      - name: stock_code
+        tests: [unique, not_null]
+  - name: fact_transactions
+    columns:
+      - name: line_id
+        tests: [unique, not_null]
+      - name: stock_code
+        tests: [{relationships: {to: ref('dim_product'), field: stock_code}}]
+  - name: fact_orders
+    columns:
+      - name: invoice
+        tests: [unique, not_null]
+      - name: customer_id
+        tests: [not_null, {relationships: {to: ref('dim_customer'), field: customer_id}}]
+  - name: mart_customer_rfm
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+      - name: rfm_segment
+        tests:
+          - not_null
+          - accepted_values:
+              values: [Champions, Loyal, Potential Loyalists, New Customers, At Risk,
+                       Hibernating, Lost, Needs Attention]
+      - name: r_score
+        tests: [{between: {min_value: 1, max_value: 5}}]
+  - name: mart_customer_retention
+    tests:
+      - expression_is_true: {expression: "month_number > 0 or retention_rate = 1"}
+      - expression_is_true: {expression: "retention_rate between 0 and 1"}

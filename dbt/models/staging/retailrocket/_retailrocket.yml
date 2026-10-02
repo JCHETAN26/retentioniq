@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: stg_retailrocket__events
+    columns:
+      - name: event_id
+        tests: [unique, not_null]
+      - name: visitor_id
+        tests: [not_null]
+      - name: event_type
+        tests:
+          - accepted_values:
+              values: [view, addtocart, transaction]
+      - name: event_ts
+        tests: [not_null]
+  - name: stg_retailrocket__category_tree
+    columns:
+      - name: category_id
+        tests: [unique, not_null]

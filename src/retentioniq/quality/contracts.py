@@ -72,7 +72,9 @@ def validate(df: pd.DataFrame, contract: Contract) -> ValidationResult:
         fc = err.failure_cases
         if fc["index"].isna().any():
             raise  # a table-level failure (e.g. wrong dtype) is a bug, not a bad row
-        fc = fc.assign(column=fc["column"].fillna("row"))
+        # DataFrame-level (row-wise) checks are reported once per column; collapse to "row".
+        row_level = fc["schema_context"].eq("DataFrameSchema") | fc["column"].isna()
+        fc = fc.assign(column=fc["column"].where(~row_level, "row"))
         for (column, check), group in fc.groupby(["column", "check"]):
             mask = pd.Series(False, index=df.index)
             mask.loc[group["index"].astype(int).unique()] = True
@@ -81,7 +83,8 @@ def validate(df: pd.DataFrame, contract: Contract) -> ValidationResult:
     flags = pd.DataFrame(reasons)
     bad = flags.any(axis=1)
     rejected = df.loc[bad].copy()
-    rejected["_reasons"] = flags.loc[bad].apply(lambda r: list(r.index[r]), axis=1)
+    cols = flags.columns.to_numpy()
+    rejected["_reasons"] = [list(cols[row]) for row in flags.loc[bad].to_numpy(dtype=bool)]
     return ValidationResult(valid=typed.loc[~bad], rejected=rejected)
 
 
@@ -184,9 +187,7 @@ CONTRACTS: dict[str, Contract] = {
         },
         schema=pa.DataFrameSchema(
             {
-                **{
-                    f"f{i}": pa.Column(pd.Float64Dtype(), nullable=False) for i in range(12)
-                },
+                **{f"f{i}": pa.Column(pd.Float64Dtype(), nullable=False) for i in range(12)},
                 **{c: _binary(c) for c in ("treatment", "conversion", "visit", "exposure")},
             }
         ),

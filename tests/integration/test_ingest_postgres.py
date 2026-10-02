@@ -6,7 +6,12 @@ import psycopg
 import pytest
 
 from retentioniq.config import settings
-from retentioniq.ingestion.load import RejectRateExceededError, ingest_dataset, libpq_url
+from retentioniq.ingestion.load import (
+    RejectRateExceededError,
+    ensure_tables,
+    ingest_dataset,
+    libpq_url,
+)
 from retentioniq.ingestion.sources import RETAILROCKET, Dataset
 
 pytestmark = pytest.mark.integration
@@ -30,6 +35,7 @@ def conn() -> psycopg.Connection:
     except psycopg.OperationalError:
         pytest.skip("Postgres not available; run `make up`")
     c.execute("DROP TABLE IF EXISTS raw.retailrocket_events")
+    ensure_tables(c, DATASET)
     c.execute("DELETE FROM meta.ingestion_runs WHERE dataset = %s", (DATASET.name,))
     c.execute("DELETE FROM quarantine.rejected_records WHERE dataset = %s", (DATASET.name,))
     return c

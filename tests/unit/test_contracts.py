@@ -7,7 +7,9 @@ TS = "1433221332117"  # 2015-06-02
 
 
 def _events(rows: list[list[str]]) -> pd.DataFrame:
-    return pd.DataFrame(rows, columns=["timestamp", "visitorid", "event", "itemid", "transactionid"])
+    return pd.DataFrame(
+        rows, columns=["timestamp", "visitorid", "event", "itemid", "transactionid"]
+    )
 
 
 def test_events_valid_rows_pass_and_are_typed() -> None:
@@ -42,13 +44,32 @@ def test_events_bad_rows_are_rejected_with_reason(row: list[str], reason: str) -
 
 def test_online_retail_keeps_business_edge_cases() -> None:
     """Cancellations, missing customers and negative quantities are valid at the raw layer."""
-    cols = ["invoice", "stock_code", "description", "quantity", "invoice_date", "price",
-            "customer_id", "country", "source_sheet"]  # fmt: skip
+    cols = [
+        "invoice",
+        "stock_code",
+        "description",
+        "quantity",
+        "invoice_date",
+        "price",
+        "customer_id",
+        "country",
+        "source_sheet",
+    ]
     df = pd.DataFrame(
         [
             ["489434", "85048", "LIGHTS", "12", "2009-12-01 07:45:00", "6.95", "13085", "UK", "s"],
             ["C489449", "22087", "PAPER", "-12", "2009-12-01 10:33:00", "2.95", "", "UK", "s"],
-            ["A506401", "B", "Adjust bad debt", "1", "2010-04-29 13:36:00", "-53594.36", "", "", "s"],
+            [
+                "A506401",
+                "B",
+                "Adjust bad debt",
+                "1",
+                "2010-04-29 13:36:00",
+                "-53594.36",
+                "",
+                "",
+                "s",
+            ],
             ["xx", "1", "BAD", "1", "not-a-date", "1.0", "1", "UK", "s"],
         ],
         columns=cols,

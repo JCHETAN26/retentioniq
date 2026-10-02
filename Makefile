@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test test-integration check up down data ingest evaluate
+.PHONY: dbt install lint format typecheck test test-integration check up down data ingest evaluate
 
 install:        ## Core + dev deps
 	uv sync --group dev
@@ -34,6 +34,9 @@ data:           ## Phase 1: download raw datasets (RetailRocket needs KAGGLE_USE
 
 ingest:         ## Phase 3: validate + load raw data into Postgres (idempotent)
 	uv run retentioniq ingest
+
+dbt:            ## Phase 5: build + test the warehouse (staging -> intermediate -> marts)
+	cd dbt && uv run --extra dbt dbt deps --profiles-dir . && uv run --extra dbt dbt build --profiles-dir .
 
 evaluate:       ## Regenerates every artifact in PROJECT_SPEC.md §8 (built up phase by phase)
 	@echo "Not implemented yet — see PROJECT_SPEC.md §8" && exit 1

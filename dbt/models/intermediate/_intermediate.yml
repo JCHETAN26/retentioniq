@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: int_online_retail__qualifying_lines
+    tests:
+      - expression_is_true: {expression: "customer_id is not null and quantity > 0 and price > 0"}
+  - name: int_online_retail__orders
+    tests:
+      - expression_is_true: {expression: "order_value > 0"}
+    columns:
+      - name: invoice
+        tests: [unique, not_null]
+  - name: int_retailrocket__sessions
+    columns:
+      - name: session_id
+        tests: [unique, not_null]

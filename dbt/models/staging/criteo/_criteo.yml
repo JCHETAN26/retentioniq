@@ -1,0 +1,13 @@
+version: 2
+
+models:
+  - name: stg_criteo__uplift
+    columns:
+      - name: row_id
+        tests: [unique, not_null]
+      - name: treatment
+        tests: [{accepted_values: {values: [0, 1], quote: false}}]
+      - name: visit
+        tests: [{accepted_values: {values: [0, 1], quote: false}}]
+      - name: conversion
+        tests: [{accepted_values: {values: [0, 1], quote: false}}]

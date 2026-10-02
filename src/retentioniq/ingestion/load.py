@@ -120,7 +120,9 @@ def _insert_rejected(
             f.filename,
             int(r["_source_row"]),
             r["_reasons"],
-            json.dumps({k: v for k, v in r.items() if not k.startswith("_")}, default=str),
+            json.dumps(
+                {str(k): v for k, v in r.items() if not str(k).startswith("_")}, default=str
+            ),
         )
         for r in rejected.to_dict("records")
     ]
