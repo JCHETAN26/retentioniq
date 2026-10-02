@@ -1,4 +1,4 @@
-import { Bars, Heatmap, Lines } from "@/components/charts";
+import { Heatmap, Intervals, Lines } from "@/components/charts";
 import { Card, DataTable, Missing, PageHeader, Stat } from "@/components/ui";
 import { artifact, num, pct, type Row } from "@/lib/api";
 
@@ -73,7 +73,7 @@ export default async function CustomerIntelligence() {
         </Card>
         <Card title="Does learned segmentation beat RFM?"
           note={`Cross-validated AUC of predicting a purchase in the ${seg.horizon_days} days after ${seg.evaluation_cutoff} from segment membership alone (k = ${seg.chosen_k}).`}>
-          <Bars data={comparison} label="name" value="auc" format={(v) => v.toFixed(3)} highlight="K-Means clusters" />
+          <Intervals rows={comparison.map((c) => ({ label: c.name, value: c.auc }))} highlight="RFM segments" />
           <p className="mt-3 text-xs text-ink-3">
             {num(seg.customers_at_cutoff)} customers at cutoff; {pct(seg.future_active_rate)} purchased again in the window.
           </p>
@@ -83,13 +83,13 @@ export default async function CustomerIntelligence() {
       <Card className="mt-4" title="Cohort retention" note="Share of each first-purchase cohort with a qualifying purchase in month M (only fully observed months)">
         {matrix.length ? (
           <Heatmap rows={cohortRows} cols={Array.from({ length: 13 }, (_, i) => i)}
-            value={(r, c) => lookup.get(`${r}|${c}`)} rowLabel="Cohort" colLabel={(c) => `M${c}`} />
+            cells={Object.fromEntries(lookup)} rowLabel="Cohort" />
         ) : <Missing what="Cohort data" />}
       </Card>
 
       <Card className="mt-4" title="Retention curves by RFM segment" note="Customers with ≥12 observable months; segment assigned at the evaluation cutoff">
         <Lines data={curves} x="month" series={CURVE_SEGMENTS.map((s) => ({ key: s, label: s }))}
-          xFormat={(v) => `M${v}`} yFormat={(v) => pct(v, 0)} />
+          xFmt="month" yFmt="pct0" />
       </Card>
     </>
   );

@@ -30,10 +30,10 @@ export default async function UpliftLab() {
         subtitle={<>Who responds <em>because of</em> the treatment. Strategies are trained on 60% of the experiment, selected on validation Qini (visit), and evaluated once on the held-out 20%. Selected: <strong>{STRATEGY_LABEL[best] ?? best}</strong>.</>} />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card title="Qini curve — visits" note="Incremental visits captured as targeting depth grows (test split). Higher and earlier is better.">
-          <Lines data={qini("visit")} x="fraction" series={series} xFormat={(v) => `${Math.round(v * 100)}%`} yFormat={(v) => v.toFixed(0)} xLabel="Share of population targeted" />
+          <Lines data={qini("visit")} x="fraction" series={series} xFmt="reach" yFmt="int" xLabel="Share of population targeted" />
         </Card>
         <Card title="Qini curve — conversions" note="Secondary outcome; conversions are rare, so curves are noisier.">
-          <Lines data={qini("conversion")} x="fraction" series={series} xFormat={(v) => `${Math.round(v * 100)}%`} yFormat={(v) => v.toFixed(0)} xLabel="Share of population targeted" />
+          <Lines data={qini("conversion")} x="fraction" series={series} xFmt="reach" yFmt="int" xLabel="Share of population targeted" />
         </Card>
       </div>
       <Card className="mt-4" title="Strategy comparison (test split)" note="Qini coefficient and AUUC are normalized: 0 = random, 1 = perfect ranking.">
@@ -51,7 +51,7 @@ export default async function UpliftLab() {
       {tau && (
         <Card className="mt-4" title="Distribution of estimated treatment effects" note={`τ̂(x) for visits from ${STRATEGY_LABEL[best] ?? best} on the test split`}>
           <Columns data={tau.map((r) => ({ x: (Number(r.bin_left) + Number(r.bin_right)) / 2, count: Number(r.count) }))}
-            x="x" y="count" xFormat={(v) => `${(100 * v).toFixed(1)}pp`} yFormat={(v) => v.toLocaleString()} />
+            x="x" y="count" xFmt="pp1" yFmt="int" />
         </Card>
       )}
     </>

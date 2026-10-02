@@ -47,7 +47,7 @@ export default async function ExperimentLab() {
         <Card className="mt-4" title="Is the effect heterogeneous?" note="Visit ATE within deciles of baseline propensity to visit (test split), with 95% CIs. Uneven effects are what uplift targeting exploits.">
           <Columns data={het.filter((r) => r.outcome === "visit").map((r) => ({ decile: Number(r.decile), ate: Number(r.ate),
             lo: Number(r.ci_low), hi: Number(r.ci_high) }))} x="decile" y="ate" ciLow="lo" ciHigh="hi"
-            xFormat={(v) => `D${v}`} yFormat={(v) => `${(100 * v).toFixed(2)} pp`} />
+            xFmt="decile" yFmt="pp1s" />
         </Card>
       )}
     </>

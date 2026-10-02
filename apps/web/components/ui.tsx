@@ -21,7 +21,7 @@ export function Card({ title, note, children, className = "" }: {
   );
 }
 
-export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
+export function Stat({ label, value, hint }: { label: ReactNode; value: ReactNode; hint?: ReactNode }) {
   return (
     <div className="rounded-xl border border-border bg-surface-1 p-4">
       <div className="text-xs font-medium text-ink-2">{label}</div>

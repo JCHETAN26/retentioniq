@@ -1,4 +1,4 @@
-import { Bars, Lines } from "@/components/charts";
+import { Bars, Intervals, Lines } from "@/components/charts";
 import { Card, DataTable, Missing, PageHeader } from "@/components/ui";
 import { artifact, pct, type Row } from "@/lib/api";
 
@@ -22,6 +22,7 @@ export default async function ModelLab() {
   const champion = String(cmp.find((r) => r.is_champion === true || r.is_champion === "True")?.model ?? "");
   const calibChamp = calib?.[champion];
   const reliability = calibChamp?.reliability.map((r) => ({ x: r.mean_predicted, observed: r.observed_rate, ideal: r.mean_predicted })) ?? [];
+  const calSeries = [{ key: "observed", label: "Observed rate" }, { key: "ideal", label: "Perfect calibration" }];
 
   return (
     <>
@@ -30,12 +31,14 @@ export default async function ModelLab() {
           Every model up the ladder must beat the one below it; whiskers are 95% bootstrap CIs.</>} />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card title="Test PR-AUC by model" note={`Champion (selected on validation): ${champion}`}>
-          <Bars data={cmp} label="model" value="pr_auc" ciLow="pr_auc_ci_low" ciHigh="pr_auc_ci_high" highlight={champion} />
+          <Intervals highlight={champion} rows={cmp.map((r) => ({ label: String(r.model), value: Number(r.pr_auc),
+            lo: Number(r.pr_auc_ci_low), hi: Number(r.pr_auc_ci_high) }))} />
+          <p className="mt-3 text-xs text-ink-3">Inactivity is the majority class here, so PR-AUC starts near the base rate; ROC-AUC in the table below shows the spread more plainly.</p>
         </Card>
         <Card title="Calibration of the champion" note={calibChamp ? `Brier ${f3(calibChamp.test_brier)} · ECE ${f3(calibChamp.test_ece)} · isotonic ${calibChamp.isotonic_applied ? "applied" : "not needed"}` : ""}>
           {reliability.length ? (
-            <Lines data={reliability} x="x" series={[{ key: "observed", label: "Observed rate" }]} diagonal
-              xFormat={(v) => pct(v, 0)} yFormat={(v) => pct(v, 0)} xLabel="Mean predicted P(inactive)" />
+            <Lines data={reliability} x="x" series={calSeries} dashedLast
+              xFmt="pct0" yFmt="pct0" xLabel="Mean predicted P(inactive) — 10 equal-size bins" />
           ) : <Missing what="Calibration" />}
         </Card>
       </div>
@@ -70,7 +73,7 @@ export default async function ModelLab() {
         </Card>
         <Card title="Global drivers of inactivity" note="Mean |SHAP| on the test snapshot (LightGBM)">
           {shap ? <Bars data={shap.slice(0, 10).map((r) => ({ ...r, feature: String(r.feature).replaceAll("_", " ") }))}
-            label="feature" value="mean_abs_shap" format={(v) => v.toFixed(3)} /> : <Missing what="SHAP" />}
+            label="feature" value="mean_abs_shap" fmt="f3" /> : <Missing what="SHAP" />}
         </Card>
       </div>
 

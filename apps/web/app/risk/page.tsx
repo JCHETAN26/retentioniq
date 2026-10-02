@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Drivers } from "@/components/charts";
 import { Card, DataTable, Missing, PageHeader, RiskBadge, Stat } from "@/components/ui";
-import { api, num, pct } from "@/lib/api";
+import { api, artifact, num, pct } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,7 @@ export default async function CustomerRisk(props: PageProps<"/risk">) {
   let list: ListRow[] = [];
   let visitor: Visitor | null = null;
   let error: string | null = null;
+  const survivalSummary = await artifact<{ cox: { concordance_test: number } }>("survival_summary.json");
   try {
     list = await api<ListRow[]>(`/v1/churn/visitors?tier=${tier}&limit=12`);
     if (id) visitor = await api<Visitor>(`/v1/churn/visitors/${encodeURIComponent(id)}`);
@@ -48,6 +49,12 @@ export default async function CustomerRisk(props: PageProps<"/risk">) {
             {visitor.survival && (
               <div className="mt-5">
                 <div className="text-xs font-medium text-ink-2">Still active (Cox, conditional on {num(visitor.survival.age_days)} days so far)</div>
+                {survivalSummary && (
+                  <p className="mt-1 text-[11px] text-ink-3">
+                    Held-out concordance {survivalSummary.cox.concordance_test.toFixed(3)}: first-session behaviour barely separates
+                    visitors, so this is close to the population curve. Use the risk score above for ranking.
+                  </p>
+                )}
                 <div className="mt-2 grid grid-cols-3 gap-2">
                   {Object.entries(visitor.survival.survival).map(([h, s]) => (
                     <Stat key={h} label={h} value={pct(s, 0)}

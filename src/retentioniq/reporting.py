@@ -7,7 +7,7 @@ are replaced on every publish, so they always match the current artifacts.
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import Engine, create_engine, text
 
 from retentioniq.features.retailrocket import ALL_FEATURES
 
@@ -32,6 +32,21 @@ def _tier(p: float) -> str:
     return next(name for threshold, name in RISK_TIERS if p >= threshold)
 
 
+MAX_PARAMS = 60_000  # Postgres caps one statement at 65,535 bind parameters
+
+
+def _write(df: pd.DataFrame, table: str, engine: Engine) -> None:
+    df.to_sql(
+        table,
+        engine,
+        schema="reporting",
+        if_exists="replace",
+        index=False,
+        chunksize=max(1, MAX_PARAMS // max(1, len(df.columns))),
+        method="multi",
+    )
+
+
 def publish(database_url: str, artifacts: Path) -> dict[str, int]:
     engine = create_engine(database_url)
     with engine.begin() as conn:
@@ -41,29 +56,13 @@ def publish(database_url: str, artifacts: Path) -> dict[str, int]:
         path = artifacts / file
         if path.exists():
             df = pd.read_csv(path)
-            df.to_sql(
-                table,
-                engine,
-                schema="reporting",
-                if_exists="replace",
-                index=False,
-                chunksize=5000,
-                method="multi",
-            )
+            _write(df, table, engine)
             written[table] = len(df)
     preds = artifacts / "churn_test_predictions.parquet"
     if preds.exists():
         df = pd.read_parquet(preds)
         keep = ["visitor_id", "cutoff", "p_inactive", "inactive", "top_category_id", *ALL_FEATURES]
         df = df[keep].assign(risk_tier=df["p_inactive"].map(_tier))
-        df.to_sql(
-            "churn_risk_scores",
-            engine,
-            schema="reporting",
-            if_exists="replace",
-            index=False,
-            chunksize=5000,
-            method="multi",
-        )
+        _write(df, "churn_risk_scores", engine)
         written["churn_risk_scores"] = len(df)
     return written

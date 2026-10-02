@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bars, Lines } from "@/components/charts";
+import { Bars, Lines, SERIES } from "@/components/charts";
 import { Card, Stat } from "@/components/ui";
 import { num, STRATEGY_LABEL, type Row } from "@/lib/api";
 
@@ -21,6 +21,8 @@ export function CampaignSimulator({ rows }: { rows: Row[] }) {
     return row;
   });
   const population = Number(rows[0]?.population);
+  // One color per strategy across every chart on the page (same slot order as the Uplift Lab).
+  const colorOf = (s: string) => SERIES[strategies.indexOf(s)] ?? "var(--text-muted)";
 
   return (
     <>
@@ -43,7 +45,7 @@ export function CampaignSimulator({ rows }: { rows: Row[] }) {
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {strategies.map((s) => (
-          <Stat key={s} label={STRATEGY_LABEL[s] ?? s} value={num(Number(get(s)?.[key]))}
+          <Stat key={s} label={<span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: colorOf(s) }} />{STRATEGY_LABEL[s] ?? s}</span>} value={num(Number(get(s)?.[key]))}
             hint={`95% CI ${num(Number(get(s)?.[`${key}_ci_low`]))} – ${num(Number(get(s)?.[`${key}_ci_high`]))}`} />
         ))}
       </div>
@@ -54,11 +56,13 @@ export function CampaignSimulator({ rows }: { rows: Row[] }) {
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <Card title={`Incremental ${outcome} at ${Math.round(reach * 100)}% reach`} note="Point estimate with 95% multinomial-bootstrap CI">
           <Bars data={at.map((r) => ({ ...r, name: STRATEGY_LABEL[String(r.strategy)] ?? String(r.strategy) }))} label="name" value={key}
-            ciLow={`${key}_ci_low`} ciHigh={`${key}_ci_high`} format={(v) => num(v)} highlight={STRATEGY_LABEL[uplift] ?? uplift} />
+            ciLow={`${key}_ci_low`} ciHigh={`${key}_ci_high`} fmt="int"
+            colorFor={(r) => colorOf(String(r.strategy))} />
         </Card>
         <Card title="Across campaign sizes" note="Where uplift targeting's advantage is largest">
           <Lines data={curve} x="reach" series={strategies.map((s) => ({ key: s, label: STRATEGY_LABEL[s] ?? s }))}
-            xFormat={(v) => `${Math.round(v * 100)}%`} yFormat={(v) => num(v)} xLabel="Campaign reach" />
+            xFmt="reach" yFmt="int" xLabel="Campaign reach" xTicks={reaches}
+            colors={strategies.map(colorOf)} />
         </Card>
       </div>
       <p className="mt-4 text-xs text-ink-3">{String(rows[0]?.scenario_note ?? "")}: the CSV also carries a net-value column under a hypothetical cost per treatment and value per conversion.</p>

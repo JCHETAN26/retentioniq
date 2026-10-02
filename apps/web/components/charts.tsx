@@ -18,8 +18,24 @@ import {
 import type { ReactNode } from "react";
 
 export const SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
+
+// Server pages can only pass serializable props to client charts, so formats are named.
+const FORMATS = {
+  pct0: (v: number) => `${(v * 100).toFixed(0)}%`,
+  pct1: (v: number) => `${(v * 100).toFixed(1)}%`,
+  f3: (v: number) => v.toFixed(3),
+  int: (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 0 }),
+  pp2: (v: number) => `${(100 * v).toFixed(2)} pp`,
+  pp1s: (v: number) => `${(100 * v).toFixed(1)} pp`,
+  pp1: (v: number) => `${(100 * v).toFixed(1)}pp`,
+  signed2: (v: number) => (v > 0 ? "+" : "") + v.toFixed(2),
+  month: (v: number) => `M${v}`,
+  reach: (v: number) => `${Math.round(v * 100)}%`,
+  decile: (v: number) => `D${v}`,
+  raw: (v: number) => String(v),
+} satisfies Record<string, (v: number) => string>;
+export type Fmt = keyof typeof FORMATS;
 const AXIS = { stroke: "var(--grid)", tick: { fill: "var(--text-secondary)", fontSize: 12 } };
-const fmtPct = (v: number, d = 0) => `${(v * 100).toFixed(d)}%`;
 
 type TipItem = { name?: string; value?: number | string; color?: string; payload?: Record<string, unknown> };
 
@@ -42,22 +58,23 @@ function TipBox({ title, items, format }: { title: ReactNode; items: TipItem[]; 
 
 /** Multi-series line chart (<= 3 series, palette slots 1-3) with crosshair tooltip. */
 export function Lines({
-  data, x, series, xFormat = (v) => String(v), yFormat = (v) => v.toFixed(3), height = 280,
-  xLabel, yLabel, diagonal = false,
+  data, x, series, xFmt = "raw", yFmt = "f3", height = 280, xLabel, yLabel, xTicks, colors,
+  dashedLast = false,
 }: {
   data: Record<string, number>[]; x: string; series: { key: string; label: string }[];
-  xFormat?: (v: number) => string; yFormat?: (v: number) => string; height?: number;
-  xLabel?: string; yLabel?: string; diagonal?: boolean;
+  xFmt?: Fmt; yFmt?: Fmt; height?: number; xLabel?: string; yLabel?: string; xTicks?: number[];
+  colors?: string[]; dashedLast?: boolean;
 }) {
+  const xFormat = FORMATS[xFmt];
+  const yFormat = FORMATS[yFmt];
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 8, right: 16, bottom: xLabel ? 20 : 4, left: 8 }}>
+      <LineChart data={data} margin={{ top: 4, right: 16, bottom: xLabel ? 20 : 4, left: 8 }}>
         <CartesianGrid stroke="var(--grid)" vertical={false} />
-        <XAxis dataKey={x} type="number" domain={["dataMin", "dataMax"]} tickFormatter={xFormat} {...AXIS}
+        <XAxis dataKey={x} type="number" domain={["dataMin", "dataMax"]} ticks={xTicks} tickFormatter={xFormat} {...AXIS}
           label={xLabel ? { value: xLabel, position: "insideBottom", offset: -12, fill: "var(--text-muted)", fontSize: 12 } : undefined} />
         <YAxis tickFormatter={yFormat} width={56} {...AXIS}
           label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: "var(--text-muted)", fontSize: 12 } : undefined} />
-        {diagonal && <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="var(--text-muted)" strokeDasharray="4 4" />}
         <Tooltip
           cursor={{ stroke: "var(--text-muted)", strokeWidth: 1 }}
           content={({ active, payload, label }) =>
@@ -66,9 +83,15 @@ export function Lines({
             ) : null
           }
         />
-        {series.length > 1 && <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-secondary)" }} />}
+        {series.length > 1 && (
+          <Legend verticalAlign="top" align="right" height={28} iconType="plainline"
+            wrapperStyle={{ fontSize: 12 }}
+            formatter={(v) => <span style={{ color: "var(--text-secondary)" }}>{v}</span>} />
+        )}
         {series.map((s, i) => (
-          <Line key={s.key} dataKey={s.key} name={s.label} stroke={SERIES[i]} strokeWidth={2}
+          <Line key={s.key} dataKey={s.key} name={s.label}
+            stroke={dashedLast && i === series.length - 1 ? "var(--text-muted)" : (colors ?? SERIES)[i]}
+            strokeDasharray={dashedLast && i === series.length - 1 ? "4 4" : undefined} strokeWidth={2}
             dot={false} activeDot={{ r: 4, stroke: "var(--surface-1)", strokeWidth: 2 }} isAnimationActive={false} />
         ))}
       </LineChart>
@@ -78,12 +101,12 @@ export function Lines({
 
 /** Horizontal bars for one measure, optional 95% CI whiskers. */
 export function Bars({
-  data, label, value, ciLow, ciHigh, format = (v) => v.toFixed(3), height, highlight,
-  colorFor,
+  data, label, value, ciLow, ciHigh, fmt = "f3", height, highlight, colorFor,
 }: {
   data: Record<string, unknown>[]; label: string; value: string; ciLow?: string; ciHigh?: string;
-  format?: (v: number) => string; height?: number; highlight?: string; colorFor?: (row: Record<string, unknown>) => string;
+  fmt?: Fmt; height?: number; highlight?: string; colorFor?: (row: Record<string, unknown>) => string;
 }) {
+  const format = FORMATS[fmt];
   const rows: Record<string, unknown>[] = data.map((d) => ({
     ...d,
     __err: ciLow && ciHigh ? [Number(d[value]) - Number(d[ciLow]), Number(d[ciHigh]) - Number(d[value])] : undefined,
@@ -118,18 +141,20 @@ export function Bars({
 
 /** Vertical column chart for distributions / grouped values (single series). */
 export function Columns({
-  data, x, y, xFormat = (v) => String(v), yFormat = (v) => String(v), height = 240, ciLow, ciHigh,
+  data, x, y, xFmt = "raw", yFmt = "raw", height = 240, ciLow, ciHigh,
 }: {
-  data: Record<string, number>[]; x: string; y: string; xFormat?: (v: number) => string;
-  yFormat?: (v: number) => string; height?: number; ciLow?: string; ciHigh?: string;
+  data: Record<string, number>[]; x: string; y: string; xFmt?: Fmt; yFmt?: Fmt; height?: number;
+  ciLow?: string; ciHigh?: string;
 }) {
+  const xFormat = FORMATS[xFmt];
+  const yFormat = FORMATS[yFmt];
   const rows = data.map((d) => ({ ...d, __err: ciLow && ciHigh ? [d[y] - d[ciLow], d[ciHigh] - d[y]] : undefined }));
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 4, left: 8 }} barCategoryGap={2}>
         <CartesianGrid stroke="var(--grid)" vertical={false} />
-        <XAxis dataKey={x} tickFormatter={xFormat} {...AXIS} />
-        <YAxis tickFormatter={yFormat} width={56} {...AXIS} />
+        <XAxis dataKey={x} tickFormatter={xFormat} minTickGap={28} {...AXIS} />
+        <YAxis tickFormatter={yFormat} width={72} {...AXIS} />
         <ReferenceLine y={0} stroke="var(--text-muted)" />
         <Tooltip
           cursor={{ fill: "var(--grid)", opacity: 0.5 }}
@@ -150,10 +175,13 @@ export function Columns({
 }
 
 /** Cohort retention heatmap: sequential single-hue ramp, hover shows the exact cell. */
-export function Heatmap({ rows, cols, value, rowLabel, colLabel, format = fmtPct }: {
-  rows: string[]; cols: number[]; value: (r: string, c: number) => number | undefined;
-  rowLabel: string; colLabel: (c: number) => string; format?: (v: number) => string;
+export function Heatmap({ rows, cols, cells, rowLabel, colPrefix = "M", fmt = "pct0" }: {
+  rows: string[]; cols: number[]; cells: Record<string, number>; rowLabel: string; colPrefix?: string;
+  fmt?: Fmt;
 }) {
+  const format = FORMATS[fmt];
+  const value = (r: string, c: number): number | undefined => cells[`${r}|${c}`];
+  const colLabel = (c: number) => `${colPrefix}${c}`;
   const vals = rows.flatMap((r) => cols.map((c) => value(r, c))).filter((v): v is number => v !== undefined && v < 1);
   const max = Math.max(...vals, 0.01);
   return (
@@ -204,8 +232,53 @@ export function Drivers({ drivers }: { drivers: { feature: string; value: number
       data={rows}
       label="label"
       value="shap"
-      format={(v) => (v > 0 ? "+" : "") + v.toFixed(2)}
+      fmt="signed2"
       colorFor={(r) => (Number(r.shap) > 0 ? "var(--div-pos)" : "var(--div-neg)")}
     />
+  );
+}
+
+/** Point estimates with optional 95% CIs on a zoomed axis (bars would have to start at 0). */
+export function Intervals({ rows, fmt = "f3", highlight }: {
+  rows: { label: string; value: number; lo?: number; hi?: number }[]; fmt?: Fmt; highlight?: string;
+}) {
+  const format = FORMATS[fmt];
+  const lo = Math.min(...rows.map((r) => r.lo ?? r.value));
+  const hi = Math.max(...rows.map((r) => r.hi ?? r.value));
+  const pad = (hi - lo) * 0.15 || 0.01;
+  const [d0, d1] = [lo - pad, hi + pad];
+  const pos = (v: number) => `${((v - d0) / (d1 - d0)) * 100}%`;
+  const ticks = Array.from({ length: 5 }, (_, i) => d0 + ((d1 - d0) * i) / 4);
+  return (
+    <div className="text-xs">
+      {rows.map((r) => {
+        const on = r.label === highlight;
+        const tip = `${r.label}: ${format(r.value)}${r.lo !== undefined ? ` (95% CI ${format(r.lo)}–${format(r.hi!)})` : ""}`;
+        return (
+          <div key={r.label} className="group flex items-center gap-3 py-1.5" title={tip}>
+            <div className={`w-40 shrink-0 truncate text-right ${on ? "font-semibold text-ink" : "text-ink-2"}`}>{r.label}</div>
+            <div className="relative h-5 flex-1 rounded group-hover:bg-surface-0">
+              {ticks.map((t, i) => <div key={i} className="absolute inset-y-0 w-px bg-[var(--grid)]" style={{ left: pos(t) }} />)}
+              {r.lo !== undefined && r.hi !== undefined && (
+                <div className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-[var(--text-secondary)]"
+                  style={{ left: pos(r.lo), width: `calc(${pos(r.hi)} - ${pos(r.lo)})` }} />
+              )}
+              <div className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--surface-1)]"
+                style={{ left: pos(r.value), background: on ? "var(--series-1)" : "var(--text-muted)" }} />
+            </div>
+            <div className="w-14 shrink-0 text-right tabular-nums text-ink">{format(r.value)}</div>
+          </div>
+        );
+      })}
+      <div className="flex gap-3">
+        <div className="w-40 shrink-0" />
+        <div className="relative h-4 flex-1 text-ink-3">
+          {ticks.map((t, i) => (
+            <span key={i} className="absolute -translate-x-1/2 tabular-nums" style={{ left: pos(t) }}>{format(t)}</span>
+          ))}
+        </div>
+        <div className="w-14 shrink-0" />
+      </div>
+    </div>
   );
 }
