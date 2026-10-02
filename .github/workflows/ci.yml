@@ -40,7 +40,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen --group dev
-      - run: uv run pytest -m integration
+      - run: uv run pytest tests/integration -m integration
 
   dbt-parse:
     runs-on: ubuntu-latest

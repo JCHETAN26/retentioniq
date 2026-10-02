@@ -19,7 +19,7 @@ test:
 	uv run pytest -m "not integration and not data"
 
 test-integration:  ## needs `make up`
-	uv run pytest -m integration
+	uv run pytest tests/integration -m integration
 
 check: lint typecheck test
 
