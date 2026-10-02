@@ -192,6 +192,16 @@ def run_ladder(
     pd.DataFrame(seg_rows).to_csv(out / "churn_segment_metrics.csv", index=False)
 
     model, cal = fitted[champion]
+    lgbm, lgbm_cal = fitted["M4_lightgbm"]
+    joblib.dump(
+        {
+            "model": lgbm,
+            "calibrator": lgbm_cal,
+            "features": ALL_FEATURES,
+            "feature_set": FEATURE_SET_VERSION,
+        },
+        out / "churn_lgbm.joblib",
+    )
     test.assign(p_inactive=preds[champion]).to_parquet(out / "churn_test_predictions.parquet")
     return comparison, calibration, model, cal
 
@@ -289,6 +299,7 @@ def run(
     snap.to_parquet(model_dir / "rr_snapshots.parquet")
 
     comparison, calibration, champion, cal = run_ladder(snap, artifacts, include_torch)
+    (artifacts / "churn_lgbm.joblib").replace(model_dir / "churn_lgbm.joblib")
     comparison.to_csv(artifacts / "churn_model_comparison.csv", index=False)
     (artifacts / "calibration_metrics.json").write_text(json.dumps(calibration, indent=2) + "\n")
     joblib.dump(

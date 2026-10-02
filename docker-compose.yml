@@ -29,6 +29,16 @@ services:
     volumes:
       - mlartifacts:/mlartifacts
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    profiles: ["serving"]
+    ports: ["8000:8000"]
+    environment:
+      RIQ_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-retentioniq}:${POSTGRES_PASSWORD:-retentioniq}@postgres:5432/${POSTGRES_DB:-retentioniq}
+    depends_on: [postgres]
+
 volumes:
   pgdata:
   mlartifacts:

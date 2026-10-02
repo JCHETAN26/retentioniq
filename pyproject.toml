@@ -81,7 +81,8 @@ follow_untyped_imports = false
 
 # Modelling code wraps untyped ML libraries; keep strictness but allow Any to flow through them.
 [[tool.mypy.overrides]]
-module = ["retentioniq.models.*", "retentioniq.training.*", "retentioniq.analytics.*"]
+module = ["retentioniq.models.*", "retentioniq.training.*", "retentioniq.analytics.*",
+          "retentioniq.serving.*"]
 warn_return_any = false
 disallow_untyped_calls = false
 

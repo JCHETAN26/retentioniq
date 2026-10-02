@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.2 — frozen before any modeling.**
+Status: **v0.3 — frozen before any modeling.**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -127,14 +127,20 @@ dataset spans only about 138 days (see Change Log, v0.2).
 
 ### 4.2 Survival (Dataset A)
 
+- **Population:** returning visitors (at least 2 sessions), with origin at least
+  31 days before `T_end`. Single-session visitors would all have their event at
+  duration 0.
 - **Origin:** the visitor's first observed session.
-- **Event:** the visitor becomes inactive, meaning the visitor's last session is
-  followed by a gap of at least 30 days.
-- **Duration:** days from origin to the start of that gap.
-- **Censoring:** visitors whose last session falls within 30 days of `T_end`
-  are right-censored at `T_end`.
-- Covariates for Cox are measured during the first 14 days after origin and
-  are not time-varying in v0.1.
+- **Event:** the start of the visitor's first inactivity gap of at least 30 days,
+  i.e. the last session before that gap.
+- **Duration:** days from origin to the event.
+- **Censoring:** a gap that starts at time `s` is only observable if
+  `s + 30d ≤ T_end`. Visitors with no observed gap are right-censored at
+  `T_end − 30d`.
+- **Covariates** for Cox are measured in the first session only (time zero), plus
+  calendar covariates. This avoids immortal-time bias: covariates measured over a
+  later window would partly come after the event for visitors who become
+  inactive early.
 
 ### 4.3 Transaction customers (Dataset B)
 
@@ -404,3 +410,4 @@ level, and hardware are recorded in `serving_benchmark.json`.
 |---------|------|--------|--------|
 | 0.1 | 2026-10-02 | Initial contract | — |
 | 0.2 | 2026-10-02 | §4.1: observation window 60 → 30 days; sensitivity values now 21-day observation and 21-day prediction; eligibility drops the now-redundant recent-event rule; cutoffs derived from `T_end` and `h`. §5.1 split rule restated to match. | With a 60-day observation window and non-overlapping train/validation/test label windows, no training cutoff fits inside RetailRocket's ~138-day span. Changed before any model was trained. |
+| 0.3 | 2026-10-02 | §4.2: survival population is returning visitors; censoring at `T_end − 30d`; Cox covariates from the first session only. | Covariates over the first 14 days with the clock starting at day 0 cause immortal-time bias; the censoring time is the last point at which a 30-day gap could still have been observed. Changed before any model was fit. |

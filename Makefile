@@ -1,4 +1,4 @@
-.PHONY: dbt install lint format typecheck test test-integration check up down data ingest evaluate
+.PHONY: reproduce dbt install lint format typecheck test test-integration check up down data ingest evaluate
 
 install:        ## Core + dev deps
 	uv sync --group dev
@@ -38,5 +38,7 @@ ingest:         ## Phase 3: validate + load raw data into Postgres (idempotent)
 dbt:            ## Phase 5: build + test the warehouse (staging -> intermediate -> marts)
 	cd dbt && uv run --extra dbt dbt deps --profiles-dir . && uv run --extra dbt dbt build --profiles-dir .
 
-evaluate:       ## Regenerates every artifact in PROJECT_SPEC.md §8 (built up phase by phase)
-	@echo "Not implemented yet — see PROJECT_SPEC.md §8" && exit 1
+evaluate:       ## Regenerate every artifact in PROJECT_SPEC.md §8 (needs `make up data ingest dbt`)
+	uv run retentioniq evaluate
+
+reproduce: up data ingest dbt evaluate  ## Everything, from raw downloads to artifacts

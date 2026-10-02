@@ -1,0 +1,9 @@
+.venv
+.git
+data/raw
+data/interim
+**/__pycache__
+apps/web/node_modules
+apps/web/.next
+mlruns
+logs
