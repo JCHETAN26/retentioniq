@@ -1,6 +1,0 @@
-2026-10-02 21:34:05,631 retentioniq.evaluate stage customers
-2026-10-02 21:34:22,614 retentioniq.evaluate stage uplift
-2026-10-02 21:35:19,256 retentioniq.training.uplift loaded 13979592 rows
-2026-10-02 21:36:10,696 retentioniq.training.uplift fitting random on visit
-2026-10-02 21:36:23,003 retentioniq.tracking MLflow not reachable at http://localhost:5000; skipping tracking
-2026-10-02 21:36:23,004 retentioniq.training.uplift fitting response_model on visit

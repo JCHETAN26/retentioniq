@@ -70,6 +70,7 @@ def build_durations(events: pd.DataFrame) -> pd.DataFrame:
     end_time = first_event.reindex(out.index).fillna(censor_at)
     out["duration_days"] = (end_time - out["origin"]).dt.total_seconds() / 86_400
     out = out[out["origin"] <= censor_at - pd.Timedelta(days=1)]
+    first = first.reindex(out.index)
 
     out["first_session_events"] = first["n"]
     out["first_session_carted"] = (first["carts"] > 0).astype(int)
