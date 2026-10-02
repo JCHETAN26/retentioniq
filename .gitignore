@@ -32,3 +32,6 @@ node_modules/
 
 # Notebooks
 .ipynb_checkpoints/
+.terraform/
+*.tfstate*
+.terraform.lock.hcl

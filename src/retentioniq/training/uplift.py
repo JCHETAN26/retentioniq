@@ -41,6 +41,9 @@ log = logging.getLogger(__name__)
 OUTCOMES = ("visit", "conversion")
 PRIMARY = "visit"
 REACH = (0.01, 0.05, 0.10, 0.20, 0.30)
+# Learners are fit on a stratified subsample of the training split (spec v0.4, compute budget);
+# validation and test always use their full rows.
+TRAIN_ROWS = 3_000_000
 # Criteo uplift v2.1 documentation: ~85% of users were assigned to treatment.
 DESIGNED_TREATMENT_SHARE = 0.85
 # Hypothetical economics for the cost-sensitivity scenario. NOT observed data.
@@ -133,6 +136,12 @@ def run(database_url: str, artifacts: Path, model_dir: Path) -> dict[str, Any]:
 
     exp = experiment_analysis(df)
     train, val, test = split(df)
+    if len(train) > TRAIN_ROWS:
+        strata = train["treatment"].astype(str) + "_" + train["visit"].astype(str)
+        train, _ = train_test_split(
+            train, train_size=TRAIN_ROWS, stratify=strata, random_state=SEED
+        )
+        train = train.reset_index(drop=True)
     exp["splits"] = {"train": len(train), "validation": len(val), "test": len(test)}
     del df
 

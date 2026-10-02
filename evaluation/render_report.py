@@ -38,13 +38,25 @@ def customers() -> list[str]:
         return []
     cmp = seg["comparison"]
     rows = [
-        {"segmentation": k, "groups": v["n_groups"],
-         "future-activity AUC": v["future_activity_auc"], "silhouette": v.get("silhouette")}
-        for k, v in cmp.items() if isinstance(v, dict)
+        {
+            "segmentation": k,
+            "groups": v["n_groups"],
+            "future-activity AUC": v["future_activity_auc"],
+            "silhouette": v.get("silhouette"),
+        }
+        for k, v in cmp.items()
+        if isinstance(v, dict)
     ]
     rfm = pd.DataFrame(seg["rfm_segments_full_history"])[
-        ["rfm_segment", "customers", "share_customers", "share_revenue", "avg_order_value",
-         "mean_frequency", "repeat_purchase_rate"]
+        [
+            "rfm_segment",
+            "customers",
+            "share_customers",
+            "share_revenue",
+            "avg_order_value",
+            "mean_frequency",
+            "repeat_purchase_rate",
+        ]
     ].sort_values("share_revenue", ascending=False)
     vc = seg["value_concentration"]
     out = [
@@ -76,8 +88,11 @@ def customers() -> list[str]:
         avail = [c for c in (1, 3, 6, 12) if c in m.columns]
         summary = m[avail].mean().to_frame("mean retention").T
         summary.columns = [f"M{c}" for c in avail]
-        out += ["", "### Cohort retention (mean across first-purchase cohorts)",
-                summary.to_markdown(index=False, floatfmt=".3f")]
+        out += [
+            "",
+            "### Cohort retention (mean across first-purchase cohorts)",
+            summary.to_markdown(index=False, floatfmt=".3f"),
+        ]
     return out
 
 
@@ -86,8 +101,18 @@ def churn() -> list[str]:
     if cmp is None:
         return []
     man = _json("split_manifest.json") or {}
-    cols = ["model", "pr_auc", "pr_auc_ci_low", "pr_auc_ci_high", "roc_auc", "precision@10",
-            "recall@10", "brier", "ece", "is_champion"]
+    cols = [
+        "model",
+        "pr_auc",
+        "pr_auc_ci_low",
+        "pr_auc_ci_high",
+        "roc_auc",
+        "precision@10",
+        "recall@10",
+        "brier",
+        "ece",
+        "is_champion",
+    ]
     out = [
         "## Inactivity prediction (RetailRocket)",
         "",
@@ -99,20 +124,41 @@ def churn() -> list[str]:
     ]
     abl = _csv("feature_ablation.csv")
     if abl is not None:
-        out += ["", "### Feature-family ablation (cumulative)",
-                _table(abl[["model", "features", "n_features", "test_pr_auc",
-                            "delta_test_pr_auc", "delta_ci_low", "delta_ci_high"]])]
+        out += [
+            "",
+            "### Feature-family ablation (cumulative)",
+            _table(
+                abl[
+                    [
+                        "model",
+                        "features",
+                        "n_features",
+                        "test_pr_auc",
+                        "delta_test_pr_auc",
+                        "delta_ci_low",
+                        "delta_ci_high",
+                    ]
+                ]
+            ),
+        ]
     sens = _csv("churn_sensitivity.csv")
     if sens is not None:
         pv = sens.pivot_table(index="setting", columns="model", values="pr_auc").reset_index()
         stable = bool(sens["ranking_stable"].iloc[0])
-        out += ["", "### Sensitivity of the label definition",
-                f"Model ranking (M4 > M1) stable across all settings: **{stable}**.", "",
-                _table(pv)]
+        out += [
+            "",
+            "### Sensitivity of the label definition",
+            f"Model ranking (M4 > M1) stable across all settings: **{stable}**.",
+            "",
+            _table(pv),
+        ]
     shap = _csv("shap_global.csv")
     if shap is not None:
-        out += ["", "### What drives inactivity risk (mean |SHAP|, M4)",
-                _table(shap.head(10)[["feature", "family", "mean_abs_shap", "value_shap_corr"]])]
+        out += [
+            "",
+            "### What drives inactivity risk (mean |SHAP|, M4)",
+            _table(shap.head(10)[["feature", "family", "mean_abs_shap", "value_shap_corr"]]),
+        ]
     seg = _csv("churn_segment_metrics.csv")
     if seg is not None:
         out += ["", "### Segment performance", _table(seg)]
@@ -150,10 +196,17 @@ def uplift() -> list[str]:
         return []
     rows = []
     for o, r in exp["outcomes"].items():
-        rows.append({"outcome": o, "control": r["rate_control"], "treatment": r["rate_treatment"],
-                     "ATE": r["ate"], "ATE 95% CI": f"[{r['ate_ci_newcombe'][0]:.5f}, "
-                     f"{r['ate_ci_newcombe'][1]:.5f}]", "relative lift": r["relative_lift"],
-                     "p (Holm)": r["p_value_holm"]})
+        rows.append(
+            {
+                "outcome": o,
+                "control": r["rate_control"],
+                "treatment": r["rate_treatment"],
+                "ATE": r["ate"],
+                "ATE 95% CI": f"[{r['ate_ci_newcombe'][0]:.5f}, {r['ate_ci_newcombe'][1]:.5f}]",
+                "relative lift": r["relative_lift"],
+                "p (Holm)": r["p_value_holm"],
+            }
+        )
     test = res[res["split"] == "test"]
     out = [
         "## Experiment & uplift (Criteo)",
@@ -166,15 +219,41 @@ def uplift() -> list[str]:
         "",
         f"### Targeting strategies — test set (selected on validation Qini: "
         f"**{exp['selected_strategy']}**)",
-        _table(test[["strategy", "outcome", "qini_coefficient", "auuc", "uplift@1",
-                     "uplift@10", "uplift@30"]]),
+        _table(
+            test[
+                [
+                    "strategy",
+                    "outcome",
+                    "qini_coefficient",
+                    "auuc",
+                    "uplift@1",
+                    "uplift@10",
+                    "uplift@30",
+                ]
+            ]
+        ),
     ]
     if sim is not None:
-        out += ["", "### Campaign simulation — incremental outcomes on the test population",
-                _table(sim[["reach", "strategy", "targeted", "incremental_visits",
-                            "incremental_conversions", "incremental_conversions_ci_low",
-                            "incremental_conversions_ci_high"]], ".1f"),
-                "", f"_{sim['scenario_note'].iloc[0]}_ (scenario net value column in CSV)."]
+        out += [
+            "",
+            "### Campaign simulation — incremental outcomes on the test population",
+            _table(
+                sim[
+                    [
+                        "reach",
+                        "strategy",
+                        "targeted",
+                        "incremental_visits",
+                        "incremental_conversions",
+                        "incremental_conversions_ci_low",
+                        "incremental_conversions_ci_high",
+                    ]
+                ],
+                ".1f",
+            ),
+            "",
+            f"_{sim['scenario_note'].iloc[0]}_ (scenario net value column in CSV).",
+        ]
     return out
 
 
@@ -182,9 +261,15 @@ def serving() -> list[str]:
     b = _json("serving_benchmark.json")
     if not b:
         return []
-    return ["## Serving benchmark", "", f"Tool: {b['tool']}; hardware: {b['hardware']}.", "",
-            _table(pd.DataFrame(b["runs"]), ".2f"), "",
-            f"SLO check (single-record, concurrency 8): {b['slo_check_single_c8']}"]
+    return [
+        "## Serving benchmark",
+        "",
+        f"Tool: {b['tool']}; hardware: {b['hardware']}.",
+        "",
+        _table(pd.DataFrame(b["runs"]), ".2f"),
+        "",
+        f"SLO check (single-record, concurrency 8): {b['slo_check_single_c8']}",
+    ]
 
 
 def main() -> None:

@@ -104,5 +104,14 @@ def monitor() -> None:
     typer.echo(f"status={result['status']} drifted={result['drifted_features']}")
 
 
+@app.command()
+def publish() -> None:
+    """Load evaluation outputs into Postgres `reporting.*` for Power BI."""
+    from retentioniq.reporting import publish as _publish
+
+    for table, n in _publish(settings.database_url, settings.artifacts_dir).items():
+        typer.echo(f"reporting.{table}: {n} rows")
+
+
 if __name__ == "__main__":
     app()

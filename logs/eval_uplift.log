@@ -1,0 +1,10 @@
+   Building retentioniq @ file:///workspaces/retentioniq
+      Built retentioniq @ file:///workspaces/retentioniq
+Uninstalled 1 package in 2ms
+Installed 1 package in 1ms
+2026-10-02 21:48:45,539 retentioniq.evaluate stage uplift
+2026-10-02 21:50:20,186 retentioniq.training.uplift loaded 13979592 rows
+2026-10-02 21:52:24,817 retentioniq.training.uplift fitting random on visit
+2026-10-02 21:52:38,850 httpx HTTP Request: GET http://localhost:5000/health "HTTP/1.1 200 OK"
+2026/10/02 21:52:39 INFO mlflow.tracking.fluent: Experiment with name 'retentioniq-uplift' does not exist. Creating a new experiment.
+2026-10-02 21:52:40,343 retentioniq.training.uplift fitting response_model on visit

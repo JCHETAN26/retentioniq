@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.3 — frozen before any modeling.**
+Status: **v0.4 — frozen before any modeling.**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -263,7 +263,9 @@ category groups.
 A random 60/20/20 train/validation/test split, stratified on
 `treatment × visit`, with a fixed seed. Random splitting is valid here because
 rows are i.i.d. draws from a randomized experiment. The test set is touched
-once.
+once. Learners are fit on a
+stratified subsample of 3,000,000 training rows (same rows for every strategy);
+validation and test use all of their rows.
 
 ### 6.2 Experiment analysis (before any modeling)
 
@@ -411,3 +413,4 @@ level, and hardware are recorded in `serving_benchmark.json`.
 | 0.1 | 2026-10-02 | Initial contract | — |
 | 0.2 | 2026-10-02 | §4.1: observation window 60 → 30 days; sensitivity values now 21-day observation and 21-day prediction; eligibility drops the now-redundant recent-event rule; cutoffs derived from `T_end` and `h`. §5.1 split rule restated to match. | With a 60-day observation window and non-overlapping train/validation/test label windows, no training cutoff fits inside RetailRocket's ~138-day span. Changed before any model was trained. |
 | 0.3 | 2026-10-02 | §4.2: survival population is returning visitors; censoring at `T_end − 30d`; Cox covariates from the first session only. | Covariates over the first 14 days with the clock starting at day 0 cause immortal-time bias; the censoring time is the last point at which a 30-day gap could still have been observed. Changed before any model was fit. |
+| 0.4 | 2026-10-02 | §6.1: uplift learners fit on a 3M-row stratified subsample of the 8.4M training rows; validation and test unchanged. | Compute budget: one LightGBM fit on 8.4M rows took ~15 minutes on the 4-core environment, putting the 22-fit ladder at several hours. Decided before any uplift result was produced; applies identically to every strategy. |

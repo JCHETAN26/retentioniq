@@ -1,0 +1,16 @@
+2026-10-02 21:48:08,973 retentioniq.evaluate stage churn
+2026-10-02 21:48:30,061 retentioniq.training.churn fitting M0_naive_recency
+2026-10-02 21:48:39,765 httpx HTTP Request: GET http://localhost:5000/health "HTTP/1.1 200 OK"
+2026/10/02 21:48:40 INFO mlflow.tracking.fluent: Experiment with name 'retentioniq-churn' does not exist. Creating a new experiment.
+2026-10-02 21:48:40,713 retentioniq.training.churn fitting M1_logistic_rfm
+2026-10-02 21:48:52,931 retentioniq.training.churn fitting M2_logistic_full
+2026-10-02 21:49:15,658 retentioniq.training.churn fitting M3_random_forest
+2026-10-02 21:52:29,100 retentioniq.training.churn fitting M4_lightgbm
+/workspaces/retentioniq/.venv/lib/python3.11/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
+  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
+/workspaces/retentioniq/.venv/lib/python3.11/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
+  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
+/workspaces/retentioniq/.venv/lib/python3.11/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
+  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
+/workspaces/retentioniq/.venv/lib/python3.11/site-packages/lightgbm/sklearn.py:1106: LGBMDeprecationWarning: The argument 'eval_set' is deprecated, use 'eval_X' and 'eval_y' instead.
+  eval_set = _validate_eval_set_Xy(eval_set=eval_set, eval_X=eval_X, eval_y=eval_y)
