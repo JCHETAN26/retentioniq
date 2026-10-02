@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* Tokens follow the validated reference palette (dataviz skill, references/palette.md). */
+:root {
+  color-scheme: light;
+  --surface-0: #f4f3f0;
+  --surface-1: #fcfcfb;
+  --border: #e3e1db;
+  --grid: #ebe9e4;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7974;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --seq-100: #cde2fb;
+  --seq-700: #0d366b;
+  --div-pos: #d03b3b;
+  --div-neg: #2a78d6;
+  --div-mid: #f0efec;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #111110;
+    --surface-1: #1a1a19;
+    --border: #2e2e2b;
+    --grid: #2a2a28;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --seq-100: #184f95;
+    --seq-700: #cde2fb;
+    --div-pos: #e66767;
+    --div-neg: #3987e5;
+    --div-mid: #383835;
+  }
+}
+
+@theme inline {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-border: var(--border);
+  --color-ink: var(--text-primary);
+  --color-ink-2: var(--text-secondary);
+  --color-ink-3: var(--text-muted);
+  --color-accent: var(--series-1);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-feature-settings: "tnum";
+}

@@ -203,6 +203,9 @@ def run_ladder(
         out / "churn_lgbm.joblib",
     )
     test.assign(p_inactive=preds[champion]).to_parquet(out / "churn_test_predictions.parquet")
+    test[["visitor_id", "cutoff"]].assign(p_inactive=preds["M1_logistic_rfm"]).to_parquet(
+        out / "churn_baseline_predictions.parquet"
+    )
     return comparison, calibration, model, cal
 
 

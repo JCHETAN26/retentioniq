@@ -1,0 +1,142 @@
+{
+  "uid": "retentioniq",
+  "title": "RetentionIQ \u2014 Serving & Model",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Throughput (req/s)",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (endpoint) (rate(riq_requests_total[1m]))",
+          "legendFormat": "{{endpoint}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "p50 / p95 / p99 latency \u2014 /v1/churn/predict",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(riq_request_seconds_bucket{endpoint=\"/v1/churn/predict\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(riq_request_seconds_bucket{endpoint=\"/v1/churn/predict\"}[5m])))",
+          "legendFormat": "p50",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(riq_request_seconds_bucket{endpoint=\"/v1/churn/predict\"}[5m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "5xx error rate",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(riq_requests_total{status=~\"5..\"}[5m])) / sum(rate(riq_requests_total[5m]))",
+          "legendFormat": "5xx",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Mean predicted P(inactive)",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(riq_churn_prediction_sum[15m])) / sum(rate(riq_churn_prediction_count[15m]))",
+          "legendFormat": "mean risk",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Prediction distribution (share per bucket)",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (le) (increase(riq_churn_prediction_bucket[1h]))",
+          "legendFormat": "\u2264 {{le}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

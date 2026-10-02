@@ -76,5 +76,33 @@ def evaluate(
         typer.echo(f"{name}: {info['seconds']}s  {info['summary']}")
 
 
+@app.command()
+def promote() -> None:
+    """Apply the promotion gates (PROJECT_SPEC.md §9.1) and promote the challenger if all pass."""
+    from retentioniq.config import REPO_ROOT
+    from retentioniq.evaluate import MODEL_DIR
+    from retentioniq.training.promotion import promote as _promote
+
+    decision = _promote(settings.artifacts_dir, MODEL_DIR, REPO_ROOT / "dbt" / "target")
+    for g in decision.gates:
+        typer.echo(f"{'PASS' if g.passed else 'FAIL'}  {g.name}  {g.detail}")
+    typer.echo(
+        f"{'PROMOTED' if decision.promote else 'NOT PROMOTED'}: {decision.challenger} "
+        f"(reference: {decision.reference})"
+    )
+    if not decision.promote:
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def monitor() -> None:
+    """Data/model drift and performance report (PROJECT_SPEC.md §9.3)."""
+    from retentioniq.evaluate import MODEL_DIR
+    from retentioniq.monitoring.drift import run
+
+    result = run(settings.artifacts_dir, MODEL_DIR)
+    typer.echo(f"status={result['status']} drifted={result['drifted_features']}")
+
+
 if __name__ == "__main__":
     app()

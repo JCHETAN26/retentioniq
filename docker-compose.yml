@@ -39,6 +39,40 @@ services:
       RIQ_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-retentioniq}:${POSTGRES_PASSWORD:-retentioniq}@postgres:5432/${POSTGRES_DB:-retentioniq}
     depends_on: [postgres]
 
+  airflow:
+    build: ./pipelines/airflow
+    profiles: ["orchestration"]
+    command: standalone
+    ports: ["8080:8080"]
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/retentioniq/pipelines/airflow/dags
+      RIQ_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-retentioniq}:${POSTGRES_PASSWORD:-retentioniq}@postgres:5432/${POSTGRES_DB:-retentioniq}
+      RIQ_MLFLOW_TRACKING_URI: http://mlflow:5000
+      POSTGRES_HOST: postgres
+    volumes:
+      - .:/opt/retentioniq
+    depends_on: [postgres, mlflow]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["monitoring"]
+    ports: ["9090:9090"]
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ["monitoring"]
+    ports: ["3001:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+
 volumes:
   pgdata:
   mlartifacts:

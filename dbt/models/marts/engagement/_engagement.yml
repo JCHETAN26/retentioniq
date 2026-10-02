@@ -1,16 +1,22 @@
 version: 2
-
 models:
-  - name: fact_events
-    columns:
-      - name: event_id
-        tests: [unique, not_null]
-      - name: session_id
-        tests: [not_null]
-  - name: mart_customer_daily_activity
+- name: fact_events
+  columns:
+  - name: event_id
     tests:
-      - expression_is_true: {expression: "n_events = n_views + n_carts + n_transactions"}
-  - name: mart_engagement_funnel
-    columns:
-      - name: activity_date
-        tests: [unique, not_null]
+    - unique
+    - not_null
+  - name: session_id
+    tests:
+    - not_null
+- name: mart_customer_daily_activity
+  tests:
+  - expression_is_true:
+      arguments:
+        expression: n_events = n_views + n_carts + n_transactions
+- name: mart_engagement_funnel
+  columns:
+  - name: activity_date
+    tests:
+    - unique
+    - not_null

@@ -1,12 +1,11 @@
 version: 2
-
 sources:
-  - name: raw
-    schema: raw
-    description: Validated source rows loaded by `retentioniq ingest`. Never modified by dbt.
-    tables:
-      - name: online_retail_transactions
-      - name: retailrocket_events
-      - name: retailrocket_item_properties
-      - name: retailrocket_category_tree
-      - name: criteo_uplift
+- name: raw
+  schema: raw
+  description: Validated source rows loaded by `retentioniq ingest`. Never modified by dbt.
+  tables:
+  - name: online_retail_transactions
+  - name: retailrocket_events
+  - name: retailrocket_item_properties
+  - name: retailrocket_category_tree
+  - name: criteo_uplift
