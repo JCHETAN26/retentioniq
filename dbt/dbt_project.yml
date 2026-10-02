@@ -1,0 +1,25 @@
+name: retentioniq
+version: "0.1.0"
+config-version: 2
+profile: retentioniq
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+vars:
+  # PROJECT_SPEC.md §4.1 / §4.3; change only together with a spec version bump.
+  session_gap_minutes: 30
+  online_retail_non_product_codes: ["POST", "DOT", "M", "BANK CHARGES", "AMAZONFEE", "D", "CRUK", "C2"]
+
+models:
+  retentioniq:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: table
+    marts:
+      +schema: marts
+      +materialized: table

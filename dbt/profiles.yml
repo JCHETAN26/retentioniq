@@ -1,0 +1,12 @@
+retentioniq:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('POSTGRES_USER', 'retentioniq') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'retentioniq') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'retentioniq') }}"
+      schema: public
+      threads: 4

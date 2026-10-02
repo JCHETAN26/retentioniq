@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.1 — frozen before any modeling.**
+Status: **v0.4 — frozen before any modeling.**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -88,10 +88,10 @@ with `timestamp < t_c` may be used for features.
 
 | Parameter | Primary value | Sensitivity values |
 |-----------|---------------|--------------------|
-| Observation window | 60 days before `t_c` | 30, 90 |
-| Prediction (outcome) window | 30 days after `t_c` | 14, 45 |
+| Observation window | 30 days before `t_c` (tenure uses all history before `t_c`) | 21 |
+| Prediction (outcome) window | 30 days after `t_c` | 21 |
 | Session gap | 30 minutes without events starts a new session | 15, 60 |
-| Eligible population | ≥ 2 sessions in the observation window **and** ≥ 1 event in the 30 days before `t_c` | ≥ 1 session; ≥ 3 sessions |
+| Eligible population | ≥ 2 sessions in the observation window | ≥ 1 session; ≥ 3 sessions |
 
 **Label:** `inactive = 1` if the visitor has **zero sessions** in
 `[t_c, t_c + 30d)`, otherwise `0`.
@@ -101,29 +101,46 @@ Secondary label, reported but not used for model selection:
 window, among visitors who had at least one transaction in the observation
 window.
 
-**Snapshots:** we build several cutoffs, spaced 14 days apart, starting when the
-first full observation window is available and ending at the last date that
-still leaves a full 30-day outcome window. One visitor may appear in more than
-one snapshot. Whenever we compute confidence intervals, we treat each visitor
-as one group (§7.2).
+**Snapshots:** cutoffs are derived from the data end `T_end` (floored to a day)
+and the prediction window `h`, so that every training label is observable before
+the cutoff it is evaluated at:
+
+- test cutoff = `T_end − h`
+- validation cutoff = `test − h`
+- training cutoffs = `validation − h − {0, 7, 14}` days, dropping any whose
+  observation window would start before the data does
+
+One visitor may appear in more than one snapshot. Whenever we compute confidence
+intervals, we treat each visitor as one group (§7.2). Models are fit on the
+training snapshots only; the validation snapshot is used for tuning, early
+stopping and calibration, and is never refit on, so calibration stays
+out-of-sample.
 
 **Edge censoring:** the dataset ends at a fixed date `T_end`. Any cutoff with
 `t_c + 30d > T_end` is excluded from labeled data.
 
 Sensitivity analysis: we rerun the M1 and M4 models with every sensitivity value
 and report how the base rate and PR-AUC change. A conclusion counts as robust
-only if the ranking of models holds under every sensitivity setting.
+only if the ranking of models holds under every sensitivity setting. Longer
+windows (60/90-day observation, 45-day prediction) are infeasible because the
+dataset spans only about 138 days (see Change Log, v0.2).
 
 ### 4.2 Survival (Dataset A)
 
+- **Population:** returning visitors (at least 2 sessions), with origin at least
+  31 days before `T_end`. Single-session visitors would all have their event at
+  duration 0.
 - **Origin:** the visitor's first observed session.
-- **Event:** the visitor becomes inactive, meaning the visitor's last session is
-  followed by a gap of at least 30 days.
-- **Duration:** days from origin to the start of that gap.
-- **Censoring:** visitors whose last session falls within 30 days of `T_end`
-  are right-censored at `T_end`.
-- Covariates for Cox are measured during the first 14 days after origin and
-  are not time-varying in v0.1.
+- **Event:** the start of the visitor's first inactivity gap of at least 30 days,
+  i.e. the last session before that gap.
+- **Duration:** days from origin to the event.
+- **Censoring:** a gap that starts at time `s` is only observable if
+  `s + 30d ≤ T_end`. Visitors with no observed gap are right-censored at
+  `T_end − 30d`.
+- **Covariates** for Cox are measured in the first session only (time zero), plus
+  calendar covariates. This avoids immortal-time bias: covariates measured over a
+  later window would partly come after the event for visitors who become
+  inactive early.
 
 ### 4.3 Transaction customers (Dataset B)
 
@@ -178,15 +195,15 @@ Every customer falls into exactly one segment. A unit test enforces this.
 
 ### 5.1 Temporal validation
 
-- Snapshots are split by cutoff date, never randomly:
-  - **train:** earliest cutoffs
-  - **validation:** the next cutoff(s), used for hyperparameters, early stopping,
+- Snapshots are split by cutoff date (§4.1), never randomly:
+  - **train:** the training cutoffs
+  - **validation:** the validation cutoff, used for hyperparameters, early stopping,
     and calibration fitting
-  - **test:** the last cutoff or cutoffs, touched **once** per model family after
+  - **test:** the test cutoff, touched **once** per model family after
     all tuning is finished
-- No visitor's outcome window may overlap a later split's feature window in a way
-  that leaks information. Concretely, we require
-  `train cutoff + 30d ≤ validation cutoff`.
+- Every label used for fitting must be observable at the cutoff the model is
+  evaluated at: `train cutoff + h ≤ validation cutoff` and
+  `validation cutoff + h ≤ test cutoff`.
 - The exact cutoff dates are written to `artifacts/split_manifest.json` the
   first time features are built, and that file is versioned.
 
@@ -246,7 +263,9 @@ category groups.
 A random 60/20/20 train/validation/test split, stratified on
 `treatment × visit`, with a fixed seed. Random splitting is valid here because
 rows are i.i.d. draws from a randomized experiment. The test set is touched
-once.
+once. Learners are fit on a
+stratified subsample of 3,000,000 training rows (same rows for every strategy);
+validation and test use all of their rows.
 
 ### 6.2 Experiment analysis (before any modeling)
 
@@ -392,3 +411,6 @@ level, and hardware are recorded in `serving_benchmark.json`.
 | Version | Date | Change | Reason |
 |---------|------|--------|--------|
 | 0.1 | 2026-10-02 | Initial contract | — |
+| 0.2 | 2026-10-02 | §4.1: observation window 60 → 30 days; sensitivity values now 21-day observation and 21-day prediction; eligibility drops the now-redundant recent-event rule; cutoffs derived from `T_end` and `h`. §5.1 split rule restated to match. | With a 60-day observation window and non-overlapping train/validation/test label windows, no training cutoff fits inside RetailRocket's ~138-day span. Changed before any model was trained. |
+| 0.3 | 2026-10-02 | §4.2: survival population is returning visitors; censoring at `T_end − 30d`; Cox covariates from the first session only. | Covariates over the first 14 days with the clock starting at day 0 cause immortal-time bias; the censoring time is the last point at which a 30-day gap could still have been observed. Changed before any model was fit. |
+| 0.4 | 2026-10-02 | §6.1: uplift learners fit on a 3M-row stratified subsample of the 8.4M training rows; validation and test unchanged. | Compute budget: one LightGBM fit on 8.4M rows took ~15 minutes on the 4-core environment, putting the 22-fit ladder at several hours. Decided before any uplift result was produced; applies identically to every strategy. |

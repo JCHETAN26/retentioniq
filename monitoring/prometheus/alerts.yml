@@ -1,0 +1,36 @@
+# Thresholds mirror PROJECT_SPEC.md §9.2 / §9.3.
+groups:
+  - name: retentioniq-system
+    rules:
+      - alert: P95LatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(riq_request_seconds_bucket{endpoint="/v1/churn/predict"}[5m]))) > 0.25
+        for: 5m
+        labels: {severity: page}
+        annotations: {summary: "p95 latency of /v1/churn/predict above 250 ms"}
+      - alert: P95LatencyWarn
+        expr: histogram_quantile(0.95, sum by (le) (rate(riq_request_seconds_bucket{endpoint="/v1/churn/predict"}[5m]))) > 0.1
+        for: 10m
+        labels: {severity: warn}
+        annotations: {summary: "p95 latency of /v1/churn/predict above the 100 ms SLO"}
+      - alert: ErrorRateHigh
+        expr: sum(rate(riq_requests_total{status=~"5.."}[5m])) / sum(rate(riq_requests_total[5m])) > 0.01
+        for: 5m
+        labels: {severity: page}
+        annotations: {summary: "5xx rate above 1%"}
+      - alert: ErrorRateWarn
+        expr: sum(rate(riq_requests_total{status=~"5.."}[5m])) / sum(rate(riq_requests_total[5m])) > 0.001
+        for: 10m
+        labels: {severity: warn}
+        annotations: {summary: "5xx rate above the 0.1% SLO"}
+  - name: retentioniq-model
+    rules:
+      - alert: PredictionMeanShift
+        # Mean predicted risk over 1h differs from the trailing 7-day mean by > 0.1.
+        expr: |
+          abs(
+            (sum(rate(riq_churn_prediction_sum[1h])) / sum(rate(riq_churn_prediction_count[1h])))
+            - (sum(rate(riq_churn_prediction_sum[7d])) / sum(rate(riq_churn_prediction_count[7d])))
+          ) > 0.1
+        for: 30m
+        labels: {severity: warn}
+        annotations: {summary: "Prediction distribution shifted; run `retentioniq monitor`"}

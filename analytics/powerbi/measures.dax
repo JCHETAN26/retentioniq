@@ -1,0 +1,73 @@
+// RetentionIQ — DAX measures. Create a "_Measures" table and paste each measure.
+// Table names assume the Navigator defaults for the PostgreSQL connector (schema_table).
+
+// ---------- Sales & customers (Online Retail II, marts) ----------
+Revenue = SUM ( marts_fact_orders[order_value] )
+Orders = DISTINCTCOUNT ( marts_fact_orders[invoice] )
+Customers = DISTINCTCOUNT ( marts_fact_orders[customer_id] )
+AOV = DIVIDE ( [Revenue], [Orders] )
+Orders per Customer = DIVIDE ( [Orders], [Customers] )
+Units = SUM ( marts_fact_orders[n_units] )
+
+New Customers =
+CALCULATE ( DISTINCTCOUNT ( marts_fact_orders[customer_id] ), marts_fact_orders[customer_order_number] = 1 )
+
+Repeat Customers =
+COUNTROWS (
+    FILTER ( VALUES ( marts_fact_orders[customer_id] ), CALCULATE ( COUNTROWS ( marts_fact_orders ) ) >= 2 )
+)
+Repeat Purchase Rate = DIVIDE ( [Repeat Customers], [Customers] )
+
+Revenue LY = CALCULATE ( [Revenue], SAMEPERIODLASTYEAR ( marts_dim_date[date_day] ) )
+Revenue YoY % = DIVIDE ( [Revenue] - [Revenue LY], [Revenue LY] )
+Revenue MoM % =
+VAR prev = CALCULATE ( [Revenue], DATEADD ( marts_dim_date[date_day], -1, MONTH ) )
+RETURN DIVIDE ( [Revenue] - prev, prev )
+
+Cancelled Value =
+-CALCULATE ( SUM ( marts_fact_transactions[line_amount] ), marts_fact_transactions[is_cancellation] = TRUE () )
+Qualifying Line Value =
+CALCULATE ( SUM ( marts_fact_transactions[line_amount] ), marts_fact_transactions[is_qualifying] = TRUE () )
+Cancellation Rate = DIVIDE ( [Cancelled Value], [Qualifying Line Value] )
+
+// ---------- Segments & value ----------
+Segment Revenue Share =
+DIVIDE ( [Revenue], CALCULATE ( [Revenue], ALL ( marts_mart_customer_rfm[rfm_segment] ) ) )
+Segment Customer Share =
+DIVIDE ( [Customers], CALCULATE ( [Customers], ALL ( marts_mart_customer_rfm[rfm_segment] ) ) )
+Customer Lifetime Value = AVERAGE ( marts_dim_customer[lifetime_value] )
+
+Top 10% Customer Revenue Share =
+VAR ranked = ADDCOLUMNS ( VALUES ( marts_dim_customer[customer_id] ), "@rev", CALCULATE ( [Revenue] ) )
+VAR n = COUNTROWS ( ranked )
+VAR top = TOPN ( MAX ( 1, ROUND ( n * 0.1, 0 ) ), ranked, [@rev], DESC )
+RETURN DIVIDE ( SUMX ( top, [@rev] ), SUMX ( ranked, [@rev] ) )
+
+// ---------- Cohorts ----------
+Cohort Size = SUM ( marts_mart_customer_retention[cohort_size] )
+Cohort Active Customers = SUM ( marts_mart_customer_retention[active_customers] )
+Retention Rate = DIVIDE ( [Cohort Active Customers], [Cohort Size] )
+M1 Retention =
+CALCULATE ( [Retention Rate], marts_mart_customer_retention[month_number] = 1 )
+M3 Retention =
+CALCULATE ( [Retention Rate], marts_mart_customer_retention[month_number] = 3 )
+
+// ---------- Engagement funnel (RetailRocket) ----------
+Sessions = SUM ( marts_mart_engagement_funnel[sessions] )
+Sessions with Cart = SUM ( marts_mart_engagement_funnel[sessions_with_cart] )
+Sessions with Purchase = SUM ( marts_mart_engagement_funnel[sessions_with_transaction] )
+View to Cart Rate =
+DIVIDE ( [Sessions with Cart], SUM ( marts_mart_engagement_funnel[sessions_with_view] ) )
+Cart to Purchase Rate = DIVIDE ( [Sessions with Purchase], [Sessions with Cart] )
+Session Conversion Rate = DIVIDE ( [Sessions with Purchase], [Sessions] )
+
+// ---------- Risk (model outputs, reporting schema) ----------
+Scored Visitors = COUNTROWS ( reporting_churn_risk_scores )
+Avg Predicted Risk = AVERAGE ( reporting_churn_risk_scores[p_inactive] )
+Actual Inactive Rate = AVERAGE ( reporting_churn_risk_scores[inactive] )
+High-risk Visitors =
+CALCULATE ( [Scored Visitors], reporting_churn_risk_scores[risk_tier] = "high" )
+High-risk Share = DIVIDE ( [High-risk Visitors], [Scored Visitors] )
+Precision in High Tier =
+CALCULATE ( [Actual Inactive Rate], reporting_churn_risk_scores[risk_tier] = "high" )
+Calibration Gap = [Avg Predicted Risk] - [Actual Inactive Rate]
