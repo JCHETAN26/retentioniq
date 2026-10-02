@@ -42,14 +42,15 @@ def run(
     out = settings.artifacts_dir
     out.mkdir(parents=True, exist_ok=True)
     manifest_path = out / "manifest.json"
-    manifest: dict[str, Any] = (
-        json.loads(manifest_path.read_text()) if manifest_path.exists() else {"stages": {}}
-    )
     stages = _stages(include_torch, sensitivity)
+    manifest: dict[str, Any] = {"stages": {}}
     for name in only or list(STAGES):
         log.info("stage %s", name)
         start = time.perf_counter()
         summary = stages[name]()
+        # Re-read right before writing so concurrent runs of other stages are not overwritten.
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text())
         manifest["stages"][name] = {
             "finished_at": datetime.now(UTC).isoformat(),
             "seconds": round(time.perf_counter() - start, 1),

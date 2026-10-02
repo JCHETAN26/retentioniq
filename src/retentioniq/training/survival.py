@@ -145,8 +145,11 @@ def run(database_url: str, artifacts: Path, model_dir: Path) -> dict[str, Any]:
         model_df[c] = np.log1p(model_df[c])
     cph = CoxPHFitter(penalizer=0.01).fit(model_df, "duration_days", "event")
 
+    # Schoenfeld-residual PH test on a 20k subsample (the test needs the data the model was fit
+    # on, and its cost grows with n; with 100k+ rows trivial departures would all be "significant").
     sample = model_df.sample(min(20_000, len(model_df)), random_state=SEED)
-    ph = proportional_hazard_test(cph, sample, time_transform="rank")
+    cph_sample = CoxPHFitter(penalizer=0.01).fit(sample, "duration_days", "event")
+    ph = proportional_hazard_test(cph_sample, sample, time_transform="rank")
     ph_table = ph.summary.reset_index().rename(columns={"index": "covariate"})
     violating = ph_table.loc[ph_table["p"] < 0.01, "covariate"].astype(str).tolist()
 
