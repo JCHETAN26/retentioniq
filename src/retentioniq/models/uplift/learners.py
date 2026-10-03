@@ -31,6 +31,9 @@ def _lgbm_classifier(**overrides: Any) -> Any:
         colsample_bytree=0.8,
         random_state=SEED,
         verbose=-1,
+        # Bit-for-bit reproducible across runs (multithreaded histograms otherwise vary).
+        deterministic=True,
+        force_row_wise=True,
     )
     params.update(overrides)
     return lgb.LGBMClassifier(**params)
@@ -49,6 +52,9 @@ def _lgbm_regressor(**overrides: Any) -> Any:
         colsample_bytree=0.8,
         random_state=SEED,
         verbose=-1,
+        # Bit-for-bit reproducible across runs (multithreaded histograms otherwise vary).
+        deterministic=True,
+        force_row_wise=True,
     )
     params.update(overrides)
     return lgb.LGBMRegressor(**params)

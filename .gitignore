@@ -36,3 +36,7 @@ node_modules/
 *.tfstate*
 .terraform.lock.hcl
 logs/
+
+# Trained models are produced by `make evaluate` (and published to MLflow); never commit them.
+data/models/
+data/interim/

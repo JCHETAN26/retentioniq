@@ -151,12 +151,9 @@ def _figures(rr: dict[str, Any], orr: dict[str, Any], out: Path) -> list[str]:
 
     fig, ax = plt.subplots(figsize=(8, 3), dpi=150)
     counts = rr["_sessions_per_visitor"].clip(upper=10).value_counts().sort_index()
-    ax.bar(
-        [str(int(i)) if i < 10 else "10+" for i in counts.index],
-        counts.to_numpy(),
-        color=SERIES,
-        width=0.8,
-    )
+    labels = [str(int(i)) if i < 10 else "10+" for i in counts.index]
+    # Points, not bars: a log axis has no zero, so bar lengths would carry no meaning.
+    ax.plot(labels, counts.to_numpy(), color=SERIES, linewidth=1.6, marker="o", markersize=6)
     ax.set_yscale("log")
     _style(ax, "RetailRocket — visitors by number of sessions (log scale)")
     fig.tight_layout()

@@ -183,6 +183,8 @@ class GradientBoosting:
                     colsample_bytree=0.8,
                     random_state=SEED,
                     verbose=-1,
+                    deterministic=True,
+                    force_row_wise=True,
                 )
                 m.fit(
                     x[self.features],
