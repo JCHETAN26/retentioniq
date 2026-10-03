@@ -267,6 +267,7 @@ def uplift() -> list[str]:
         ),
     ]
     if sim is not None:
+        sim = sim.assign(reach=(sim["reach"] * 100).round().astype(int).astype(str) + "%")
         out += [
             "",
             "### Campaign simulation — incremental outcomes on the test population",
