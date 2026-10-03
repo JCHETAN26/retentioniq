@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-retentioniq}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-retentioniq}
@@ -16,6 +17,7 @@ services:
 
   mlflow:
     build: ./infrastructure/mlflow
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy

@@ -33,6 +33,16 @@ survival = ["lifelines>=0.29"]
 uplift = []  # learners and metrics are implemented in-house (retentioniq.models.uplift)
 deep = ["torch>=2.3"]
 api = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "prometheus-client>=0.20"]
+# Everything the API image needs to load, score and explain the saved model bundles.
+serving = [
+    "scikit-learn>=1.5",
+    "lightgbm>=4.3",
+    "shap>=0.45",
+    "lifelines>=0.29",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "prometheus-client>=0.20",
+]
 monitoring = ["evidently>=0.4"]
 dbt = ["dbt-core>=1.8", "dbt-postgres>=1.8"]
 

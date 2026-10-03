@@ -8,13 +8,15 @@ DAG adds scheduling, retries and lineage without a second implementation of the 
 production model in place.
 """
 
+import os
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
-REPO = "/opt/retentioniq"
-RIQ = f"cd {REPO} && uv run retentioniq"
+REPO = os.environ.get("RIQ_REPO", "/opt/retentioniq")
+# Extras needed by the training/analytics stages; uv installs them on first use.
+RIQ = f"cd {REPO} && uv run --extra ml --extra survival --extra deep retentioniq"
 
 default_args = {
     "owner": "retentioniq",

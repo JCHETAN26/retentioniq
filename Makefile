@@ -1,7 +1,7 @@
 .PHONY: reproduce dbt install lint format typecheck test test-integration check up down data ingest evaluate
 
-install:        ## Core + dev deps
-	uv sync --group dev
+install:        ## All deps (core, ML, survival, deep, dbt, serving, monitoring) + dev tools
+	uv sync --group dev --all-extras
 	uv run pre-commit install
 
 lint:

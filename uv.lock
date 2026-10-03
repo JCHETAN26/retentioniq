@@ -2940,6 +2940,16 @@ ml = [
 monitoring = [
     { name = "evidently" },
 ]
+serving = [
+    { name = "fastapi" },
+    { name = "lifelines" },
+    { name = "lightgbm" },
+    { name = "prometheus-client" },
+    { name = "scikit-learn" },
+    { name = "shap", version = "0.50.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and platform_machine != 'x86_64') or (python_full_version < '3.12' and sys_platform != 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'darwin')" },
+    { name = "shap", version = "0.52.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and platform_machine != 'x86_64') or (python_full_version >= '3.12' and sys_platform != 'darwin')" },
+    { name = "uvicorn", extra = ["standard"] },
+]
 survival = [
     { name = "lifelines" },
 ]
@@ -2961,30 +2971,37 @@ requires-dist = [
     { name = "dbt-postgres", marker = "extra == 'dbt'", specifier = ">=1.8" },
     { name = "evidently", marker = "extra == 'monitoring'", specifier = ">=0.4" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.111" },
+    { name = "fastapi", marker = "extra == 'serving'", specifier = ">=0.111" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "lifelines", marker = "extra == 'serving'", specifier = ">=0.29" },
     { name = "lifelines", marker = "extra == 'survival'", specifier = ">=0.29" },
     { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.3" },
+    { name = "lightgbm", marker = "extra == 'serving'", specifier = ">=4.3" },
     { name = "mlflow", marker = "extra == 'ml'", specifier = ">=2.14" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pandera", specifier = ">=0.24" },
     { name = "prometheus-client", marker = "extra == 'api'", specifier = ">=0.20" },
+    { name = "prometheus-client", marker = "extra == 'serving'", specifier = ">=0.20" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "pyarrow", specifier = ">=16" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.5" },
+    { name = "scikit-learn", marker = "extra == 'serving'", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.13" },
     { name = "shap", marker = "extra == 'ml'", specifier = ">=0.45" },
+    { name = "shap", marker = "extra == 'serving'", specifier = ">=0.45" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "torch", marker = "extra == 'deep'", specifier = ">=2.3", index = "https://download.pytorch.org/whl/cpu" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.30" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'serving'", specifier = ">=0.30" },
     { name = "xgboost", marker = "extra == 'ml'", specifier = ">=2.0" },
 ]
-provides-extras = ["ml", "survival", "uplift", "deep", "api", "monitoring", "dbt"]
+provides-extras = ["ml", "survival", "uplift", "deep", "api", "serving", "monitoring", "dbt"]
 
 [package.metadata.requires-dev]
 dev = [

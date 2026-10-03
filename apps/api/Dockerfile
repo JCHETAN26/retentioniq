@@ -8,10 +8,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /bin/uv
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --extra ml --extra api --extra survival --no-install-project
+RUN uv sync --frozen --no-dev --extra serving --no-install-project
 
 COPY src ./src
-RUN uv sync --frozen --no-dev --extra ml --extra api --extra survival
+RUN uv sync --frozen --no-dev --extra serving
 
 # Models and the artifacts the API serves are produced by `make evaluate`.
 COPY data/models ./data/models
