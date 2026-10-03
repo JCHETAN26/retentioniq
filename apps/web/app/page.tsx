@@ -57,7 +57,7 @@ export default async function CustomerIntelligence() {
   });
   const comparison = Object.entries(seg.comparison)
     .filter(([, v]) => typeof v === "object")
-    .map(([k, v]) => ({ name: { rfm_segments: "RFM segments", kmeans_clusters: "K-Means clusters", gmm_clusters: "GMM clusters" }[k] ?? k,
+    .map(([k, v]) => ({ name: { rfm_segments: "RFM segments", kmeans_clusters: "K-Means clusters", gmm_clusters: "GMM clusters", hdbscan_clusters: "HDBSCAN clusters" }[k] ?? k,
       auc: (v as { future_activity_auc: number }).future_activity_auc }));
 
   return (
