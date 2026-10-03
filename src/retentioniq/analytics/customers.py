@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans
+from sklearn.cluster import HDBSCAN, KMeans
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -235,8 +235,19 @@ def run(database_url: str, artifacts: Path) -> dict[str, Any]:
     df["cluster"] = km.labels_
     gmm = GaussianMixture(k_best, covariance_type="full", random_state=SEED).fit(x)
     df["gmm_cluster"] = gmm.predict(x)
+    # Density-based alternative: no k to choose, and points in sparse regions become noise (-1).
+    hdb = HDBSCAN(min_cluster_size=max(25, len(x) // 100), min_samples=10).fit(x)
+    df["hdbscan_cluster"] = hdb.labels_
     coords = PCA(2, random_state=SEED).fit_transform(x)
     df["pc1"], df["pc2"] = coords[:, 0], coords[:, 1]
+    # UMAP is for visualization only, never evidence that clusters are real (Phase 8).
+    try:
+        import umap
+
+        emb = umap.UMAP(n_neighbors=30, min_dist=0.1, random_state=SEED).fit_transform(x)
+        df["umap1"], df["umap2"] = emb[:, 0], emb[:, 1]
+    except ImportError:
+        pass
 
     # Name clusters by their dominant RFM segment so they are interpretable.
     dominant = df.groupby("cluster")["rfm_segment"].agg(lambda s: s.value_counts().index[0])
@@ -247,6 +258,7 @@ def run(database_url: str, artifacts: Path) -> dict[str, Any]:
         ("rfm_segments", "rfm_segment"),
         ("kmeans_clusters", "cluster"),
         ("gmm_clusters", "gmm_cluster"),
+        ("hdbscan_clusters", "hdbscan_cluster"),
     ):
         comparison[name] = {
             "n_groups": int(df[col].nunique()),
@@ -258,6 +270,15 @@ def run(database_url: str, artifacts: Path) -> dict[str, Any]:
     comparison["kmeans_clusters"]["silhouette"] = float(
         silhouette_score(x[sample], df["cluster"].to_numpy()[sample])
     )
+    clustered = df["hdbscan_cluster"].to_numpy() >= 0
+    comparison["hdbscan_clusters"]["noise_share"] = float(1 - clustered.mean())
+    in_sample = np.zeros(len(df), dtype=bool)
+    in_sample[sample] = True
+    keep = clustered & in_sample
+    if len(set(df.loc[keep, "hdbscan_cluster"])) > 1:
+        comparison["hdbscan_clusters"]["silhouette_excl_noise"] = float(
+            silhouette_score(x[keep], df["hdbscan_cluster"].to_numpy()[keep])
+        )
     comparison["agreement_ari_rfm_vs_kmeans"] = float(
         adjusted_rand_score(df["rfm_segment"], df["cluster"])
     )
@@ -326,8 +347,24 @@ def cohort_metrics(database_url: str, segments: pd.DataFrame) -> pd.DataFrame:
     eligible = eligible[(pd.to_datetime(last) - pd.to_datetime(eligible)).dt.days >= 365].index
     act = activity[activity["customer_id"].isin(eligible) & (activity["month_number"] <= 12)]
     act = act.merge(segments, on="customer_id", how="inner")
+    # Value tier from the FIRST order (known at acquisition); lifetime value would leak the
+    # future spending that retention itself produces.
+    first = pd.read_sql(
+        "SELECT customer_id, order_value FROM marts.fact_orders WHERE customer_order_number = 1",
+        engine,
+    )
+    first["value_tier"] = pd.qcut(
+        first["order_value"],
+        4,
+        labels=["Q1 lowest first order", "Q2", "Q3", "Q4 highest first order"],
+    ).astype(str)
+    act = act.merge(first[["customer_id", "value_tier"]], on="customer_id", how="left")
     rows = []
-    for group_type, col in (("rfm_segment", "rfm_segment"), ("cluster", "cluster_label")):
+    for group_type, col in (
+        ("rfm_segment", "rfm_segment"),
+        ("cluster", "cluster_label"),
+        ("first_order_value", "value_tier"),
+    ):
         sizes = act.groupby(col)["customer_id"].nunique()
         counts = (
             act.groupby([col, "month_number"])["customer_id"]

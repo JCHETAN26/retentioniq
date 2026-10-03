@@ -34,6 +34,7 @@ export const STRATEGY_LABEL: Record<string, string> = {
   t_learner_lgbm: "T-learner",
   x_learner_lgbm: "X-learner",
   transformed_outcome_lgbm: "Transformed outcome",
+  causal_forest: "Causal forest",
 };
 
 export const pct = (x: number, d = 1) => `${(100 * x).toFixed(d)}%`;

@@ -13,11 +13,28 @@ type Seg = {
 };
 
 const CURVE_SEGMENTS = ["Champions", "Potential Loyalists", "At Risk"];
+const VALUE_TIERS = ["Q4 highest first order", "Q1 lowest first order"];
+
+type VisitorSeg = { chosen_k: number;
+  comparison: Record<string, { n_groups: number; test_inactivity_auc: number }> };
+
+function curve(rows: Row[], groupType: string, groups: string[], maxMonth: number) {
+  return Array.from({ length: maxMonth + 1 }, (_, m) => {
+    const row: Record<string, number> = { month: m };
+    for (const g of groups) {
+      const hit = rows.find((r) => r.group_type === groupType && r.group === g && Number(r.month_number ?? r.week_number) === m);
+      if (hit) row[g] = Number(hit.retention_rate);
+    }
+    return row;
+  });
+}
 
 export default async function CustomerIntelligence() {
-  const [seg, cohorts] = await Promise.all([
+  const [seg, cohorts, vseg, vcoh] = await Promise.all([
     artifact<Seg>("segmentation_metrics.json"),
     artifact<Row[]>("cohort_metrics.csv"),
+    artifact<VisitorSeg>("visitor_segmentation.json"),
+    artifact<Row[]>("visitor_category_cohorts.csv"),
   ]);
   if (!seg) return <><PageHeader title="Customer Intelligence" subtitle="" /><Missing what="Segmentation" /></>;
 
@@ -87,10 +104,40 @@ export default async function CustomerIntelligence() {
         ) : <Missing what="Cohort data" />}
       </Card>
 
-      <Card className="mt-4" title="Retention curves by RFM segment" note="Customers with ≥12 observable months; segment assigned at the evaluation cutoff">
-        <Lines data={curves} x="month" series={CURVE_SEGMENTS.map((s) => ({ key: s, label: s }))}
-          xFmt="month" yFmt="pct0" />
-      </Card>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <Card title="Retention curves by RFM segment" note="Customers with ≥12 observable months; segment assigned at the evaluation cutoff">
+          <Lines data={curves} x="month" series={CURVE_SEGMENTS.map((s) => ({ key: s, label: s }))}
+            xFmt="month" yFmt="pct0" />
+        </Card>
+        <Card title="Retention by first-order value" note="Top vs bottom quartile of first order value (known at acquisition, so no look-ahead)">
+          <Lines data={curve(cohorts ?? [], "first_order_value", VALUE_TIERS, 12)} x="month"
+            series={VALUE_TIERS.map((s) => ({ key: s, label: s }))} xFmt="month" yFmt="pct0" />
+        </Card>
+      </div>
+
+      {vseg && (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <Card title="RetailRocket visitors: behavioural segments vs recency × frequency"
+            note={`AUC of predicting 30-day inactivity on the test snapshot from segment membership alone (k = ${vseg.chosen_k}).`}>
+            <Intervals rows={Object.entries(vseg.comparison).map(([k, v]) => ({
+              label: k === "rfm_grid" ? `R×F grid (${v.n_groups})` : `K-Means (${v.n_groups})`,
+              value: v.test_inactivity_auc }))} />
+          </Card>
+          <Card title="Weekly retention by category of first item viewed" note="RetailRocket first-visit weekly cohorts with 8 observable weeks">
+            {vcoh ? (
+              <DataTable
+                columns={[{ key: "g", label: "First category", align: "left" }, { key: "n", label: "Visitors" },
+                  { key: "w1", label: "W1" }, { key: "w4", label: "W4" }, { key: "w8", label: "W8" }]}
+                rows={[...new Set(vcoh.map((r) => String(r.group)))].map((g) => {
+                  const at = (w: number) => vcoh.find((r) => r.group === g && Number(r.week_number) === w);
+                  return { g, n: num(Number(at(0)?.cohort_size)), w1: pct(Number(at(1)?.retention_rate ?? 0), 2),
+                    w4: pct(Number(at(4)?.retention_rate ?? 0), 2), w8: pct(Number(at(8)?.retention_rate ?? 0), 2) };
+                })}
+              />
+            ) : <Missing what="Category cohorts" />}
+          </Card>
+        </div>
+      )}
     </>
   );
 }

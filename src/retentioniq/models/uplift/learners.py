@@ -174,6 +174,48 @@ class TransformedOutcome:
         return np.asarray(self.model.predict(x[FEATURES]))
 
 
+@dataclass
+class CausalForest:
+    """Causal forest (Wager & Athey 2018) via EconML's CausalForestDML.
+
+    Treatment is randomized, so the treatment model is the constant assignment rate; the
+    outcome nuisance model is a small LightGBM. Fit on a stratified subsample of at most
+    `max_rows` training rows (forest training cost; PROJECT_SPEC.md change log v0.5).
+    """
+
+    name: str = "causal_forest"
+    max_rows: int = 1_000_000
+    model: Any = None
+
+    def fit(self, x: pd.DataFrame, t: np.ndarray, y: np.ndarray) -> "CausalForest":
+        from econml.dml import CausalForestDML
+        from sklearn.dummy import DummyClassifier
+        from sklearn.model_selection import train_test_split
+
+        if len(x) > self.max_rows:
+            strata = pd.Series(t).astype(str) + "_" + pd.Series(y).astype(str)
+            idx, _ = train_test_split(
+                np.arange(len(x)), train_size=self.max_rows, stratify=strata, random_state=SEED
+            )
+            x, t, y = x.iloc[idx], t[idx], y[idx]
+        self.model = CausalForestDML(
+            model_y=_lgbm_regressor(n_estimators=200),
+            model_t=DummyClassifier(strategy="prior"),
+            discrete_treatment=True,
+            n_estimators=200,
+            min_samples_leaf=500,
+            max_samples=0.2,
+            cv=2,
+            random_state=SEED,
+            n_jobs=-1,
+        )
+        self.model.fit(y, t, X=x[FEATURES].to_numpy())
+        return self
+
+    def score(self, x: pd.DataFrame) -> np.ndarray:
+        return np.asarray(self.model.effect(x[FEATURES].to_numpy())).ravel()
+
+
 def strategies() -> list[Any]:
     """In ladder order: baselines first, then CATE estimators."""
     return [
@@ -184,4 +226,5 @@ def strategies() -> list[Any]:
         TwoModel(name="t_learner_lgbm"),
         XLearner(),
         TransformedOutcome(),
+        CausalForest(),
     ]

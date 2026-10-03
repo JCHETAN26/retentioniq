@@ -26,11 +26,19 @@ class FakeUplift:
 
 @pytest.fixture
 def client() -> TestClient:
-    api.state.churn = {"model": FakeChurn(), "calibrator": lambda p: p, "features": ALL_FEATURES,
-                       "feature_set": "test"}  # fmt: skip
-    api.state.uplift = {"strategy": FakeUplift(), "conversion_strategy": FakeUplift(),
-                        "name": "fake_uplift", "outcome": "visit",
-                        "tau_quantiles": list(np.linspace(-0.01, 0.05, 101))}  # fmt: skip
+    api.state.churn = {
+        "model": FakeChurn(),
+        "calibrator": lambda p: p,
+        "features": ALL_FEATURES,
+        "feature_set": "test",
+    }
+    api.state.uplift = {
+        "strategy": FakeUplift(),
+        "conversion_strategy": FakeUplift(),
+        "name": "fake_uplift",
+        "outcome": "visit",
+        "tau_quantiles": list(np.linspace(-0.01, 0.05, 101)),
+    }
     api.state.explainer = None
     return TestClient(api.app)
 
@@ -83,3 +91,45 @@ def test_metrics_endpoint(client: TestClient) -> None:
 def test_missing_model_is_503(client: TestClient) -> None:
     api.state.churn = None
     assert client.post("/v1/churn/predict", json=_features(1)).status_code == 503
+
+
+def test_fast_path_matches_generic_scoring() -> None:
+    lgb = pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(0)
+    x = pd.DataFrame(rng.random((500, len(ALL_FEATURES))), columns=ALL_FEATURES)
+    y = (x["recency_days"] + rng.normal(0, 0.2, 500) > 0.5).astype(int)
+
+    @dataclass
+    class Wrapped:
+        model_: object
+        name: str = "lgbm"
+
+        def predict_proba(self, frame: pd.DataFrame) -> np.ndarray:
+            return np.asarray(self.model_.predict_proba(frame)[:, 1])  # type: ignore[attr-defined]
+
+    clf = lgb.LGBMClassifier(n_estimators=20, verbose=-1).fit(x, y)
+    api.state.churn = {
+        "model": Wrapped(clf),
+        "calibrator": lambda p: p,
+        "features": ALL_FEATURES,
+        "feature_set": "test",
+    }
+    for i in range(5):
+        row = x.iloc[i].to_dict()
+        assert api._score_row(row) == pytest.approx(float(api._score_churn(x.iloc[[i]])[0]))
+
+
+def test_drivers_use_exact_tree_shap() -> None:
+    lgb = pytest.importorskip("lightgbm")
+    shap = pytest.importorskip("shap")
+    rng = np.random.default_rng(1)
+    x = pd.DataFrame(rng.random((400, len(ALL_FEATURES))), columns=ALL_FEATURES)
+    y = (x["recency_days"] > 0.5).astype(int)
+    clf = lgb.LGBMClassifier(n_estimators=15, verbose=-1).fit(x, y)
+    api.state.explainer = clf.booster_
+    drivers = api._drivers(x.iloc[[0]], k=3)[0]
+    ref = np.asarray(shap.TreeExplainer(clf).shap_values(x.iloc[[0]]))
+    ref = ref[..., 1] if ref.ndim == 3 else ref
+    for d in drivers:
+        assert d.shap == pytest.approx(ref[0, ALL_FEATURES.index(d.feature)], abs=1e-6)
+    assert drivers[0].feature == "recency_days"

@@ -28,16 +28,17 @@ ml = [
     "xgboost>=2.0",
     "mlflow>=2.14",
     "shap>=0.45",
+    "umap-learn>=0.5",
 ]
 survival = ["lifelines>=0.29"]
-uplift = []  # learners and metrics are implemented in-house (retentioniq.models.uplift)
+# Meta-learners and metrics are in-house; EconML provides the causal forest.
+uplift = ["econml>=0.17"]
 deep = ["torch>=2.3"]
 api = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "prometheus-client>=0.20"]
 # Everything the API image needs to load, score and explain the saved model bundles.
 serving = [
     "scikit-learn>=1.5",
     "lightgbm>=4.3",
-    "shap>=0.45",
     "lifelines>=0.29",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.30",
@@ -76,6 +77,10 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "PTH", "RUF", "PD", "NPY"]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# Markdown prose templates: keep sentences intact rather than wrapping mid-phrase.
+"src/retentioniq/analytics/eda.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
@@ -85,7 +90,7 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = ["lightgbm.*", "xgboost.*", "lifelines.*", "shap.*", "mlflow.*", "sklearn.*", "joblib.*",
-          "torch.*", "scipy.*", "evidently.*"]
+          "torch.*", "scipy.*", "evidently.*", "umap.*", "econml.*"]
 ignore_missing_imports = true
 follow_untyped_imports = false
 

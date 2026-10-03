@@ -15,7 +15,7 @@ def _frame(n: int, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]
             "tenure_days": rng.integers(0, 60, n),
             "ever_purchased": rng.integers(0, 2, n),
         }
-    )  # fmt: skip
+    )
     return frame, y, signal
 
 
@@ -37,16 +37,16 @@ def test_worse_model_fails_non_inferiority() -> None:
     rng = np.random.default_rng(1)
     good = _prob(2 * signal)
     weak = _prob(0.5 * signal + rng.normal(size=len(y)))
-    gates = {g.name: g for g in evaluate_gates(y, weak, good, frame, True, ALL_FEATURES,
-                                               n_boot=200)}  # fmt: skip
+    gates = {
+        g.name: g for g in evaluate_gates(y, weak, good, frame, True, ALL_FEATURES, n_boot=200)
+    }
     assert not gates["pr_auc_non_inferior"].passed
 
 
 def test_schema_and_data_gates() -> None:
     frame, y, signal = _frame(1000)
     p = _prob(signal)
-    gates = {g.name: g for g in evaluate_gates(y, p, p, frame, False, ALL_FEATURES[:-1],
-                                               n_boot=50)}  # fmt: skip
+    gates = {g.name: g for g in evaluate_gates(y, p, p, frame, False, ALL_FEATURES[:-1], n_boot=50)}
     assert not gates["data_validation"].passed
     assert not gates["schema_contract"].passed
     assert gates["pr_auc_non_inferior"].passed  # identical model is non-inferior

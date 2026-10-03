@@ -24,6 +24,7 @@ TABLES: dict[str, str] = {
     "uplift_curves.csv": "uplift_curves",
     "uplift_heterogeneity.csv": "uplift_heterogeneity",
     "campaign_simulation.csv": "campaign_simulation",
+    "visitor_category_cohorts.csv": "visitor_category_cohorts",
 }
 RISK_TIERS = ((0.8, "high"), (0.5, "medium"), (0.0, "low"))
 

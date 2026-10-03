@@ -31,11 +31,13 @@ and promotion gate before any modeling, and keeps a change log of every amendmen
 download (checksummed, read-only)  →  ingest (Pandera contracts, quarantine, idempotent ledger)
    →  Postgres raw  →  dbt staging → intermediate → marts (with tests)
    →  retentioniq evaluate:
-        customers   RFM · K-Means/GMM · cohorts            → segmentation_metrics.json, cohort_metrics.csv
+        eda         descriptive stats + hypotheses         → docs/EDA.md, eda_summary.json
+        customers   RFM · K-Means/GMM/HDBSCAN · cohorts    → segmentation_metrics.json, cohort_metrics.csv
         churn       M0–M5 ladder · ablation · sensitivity  → churn_model_comparison.csv, feature_ablation.csv, …
         explain     SHAP · FP/FN analysis                  → shap_global.csv, error_analysis.json
+        visitors    visitor segments · category cohorts    → visitor_segmentation.json, visitor_category_cohorts.csv
         survival    Kaplan–Meier · Cox PH + PH tests       → survival_analysis.csv, survival_summary.json
-        uplift      ATE · S/T/X-learners · campaign sim    → experiment_results.json, uplift_results.csv, campaign_simulation.csv
+        uplift      ATE · S/T/X-learners · causal forest · campaign sim    → experiment_results.json, uplift_results.csv, campaign_simulation.csv
    →  retentioniq promote (gated champion/challenger → MLflow registry)
    →  FastAPI (/v1/churn, /v1/uplift, /metrics)  →  Next.js app   ·   Power BI on marts + reporting
    →  monitoring: Prometheus/Grafana (system) · drift report (data/model) · CloudWatch (AWS)

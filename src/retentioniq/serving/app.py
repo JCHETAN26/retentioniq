@@ -76,9 +76,9 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     state.uplift = _load("uplift_champion.joblib")
     state.survival = _load("survival_cox.joblib")
     if state.lgbm is not None:
-        import shap
-
-        state.explainer = shap.TreeExplainer(state.lgbm["model"].model_)
+        # LightGBM's built-in TreeSHAP (pred_contrib) gives exact SHAP values in log-odds,
+        # identical to shap.TreeExplainer, without shipping the shap package in the image.
+        state.explainer = state.lgbm["model"].model_.booster_
     cov = MODEL_DIR / "survival_covariates.parquet"
     if cov.exists():
         state.survival_cov = pd.read_parquet(cov)
@@ -161,11 +161,28 @@ def _score_churn(frame: pd.DataFrame) -> np.ndarray:
     return np.clip(np.asarray(bundle["calibrator"](p), dtype=float), 0, 1)
 
 
+def _score_row(values: dict[str, float]) -> float:
+    """Single-record fast path: NumPy row straight into the LightGBM booster.
+
+    Skips the per-request DataFrame and the scikit-learn wrapper (most of the latency for one
+    row). Falls back to the generic path for non-LightGBM champions.
+    """
+    bundle = _require(state.churn, "churn")
+    booster = getattr(getattr(bundle["model"], "model_", None), "booster_", None)
+    if booster is None:
+        return float(_score_churn(pd.DataFrame([values]))[0])
+    row = np.array([[values[f] for f in bundle["features"]]], dtype=np.float64)
+    p = booster.predict(row, num_threads=1)
+    return float(np.clip(np.asarray(bundle["calibrator"](p), dtype=float), 0, 1)[0])
+
+
 def _drivers(frame: pd.DataFrame, k: int = 5) -> list[list[Driver]]:
     if state.explainer is None:
         return [[] for _ in range(len(frame))]
-    sv = np.asarray(state.explainer.shap_values(frame[ALL_FEATURES]))
-    sv = sv[..., 1] if sv.ndim == 3 else sv
+    contrib = state.explainer.predict(
+        frame[ALL_FEATURES].to_numpy(dtype=np.float64), pred_contrib=True
+    )
+    sv = np.asarray(contrib)[:, :-1]  # last column is the expected value (bias)
     out = []
     for i in range(len(frame)):
         order = np.argsort(-np.abs(sv[i]))[:k]
@@ -223,15 +240,16 @@ def models() -> dict[str, Any]:
 
 @app.post("/v1/churn/predict", response_model=ChurnPrediction)
 def churn_predict(features: ChurnFeatures, explain: bool = True) -> ChurnPrediction:
-    frame = pd.DataFrame([features.model_dump()])
-    p = float(_score_churn(frame)[0])
+    values = features.model_dump()
+    p = _score_row(values)
     PREDICTIONS.observe(p)
     assert state.churn is not None
+    frame = pd.DataFrame([values]) if explain else None
     return ChurnPrediction(
         p_inactive=p,
         risk_tier=_tier(p),
         model=state.churn["model"].name,
-        drivers=_drivers(frame)[0] if explain else [],
+        drivers=_drivers(frame)[0] if frame is not None else [],
     )
 
 
@@ -349,6 +367,9 @@ ARTIFACTS = {
     "churn_sensitivity.csv",
     "churn_segment_metrics.csv",
     "shap_global.csv",
+    "visitor_segmentation.json",
+    "visitor_category_cohorts.csv",
+    "eda_summary.json",
     "error_analysis.json",
     "split_manifest.json",
     "manifest.json",

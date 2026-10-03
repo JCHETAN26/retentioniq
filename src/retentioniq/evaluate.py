@@ -19,18 +19,20 @@ from retentioniq.tracking import git_sha
 
 log = logging.getLogger(__name__)
 MODEL_DIR = REPO_ROOT / "data" / "models"
-STAGES = ("customers", "churn", "explain", "survival", "uplift")
+STAGES = ("eda", "customers", "churn", "explain", "visitors", "survival", "uplift")
 
 
 def _stages(include_torch: bool, sensitivity: bool) -> dict[str, Callable[[], Any]]:
-    from retentioniq.analytics import customers
+    from retentioniq.analytics import customers, eda, visitors
     from retentioniq.training import churn, explain, survival, uplift
 
     db, out = settings.database_url, settings.artifacts_dir
     return {
+        "eda": lambda: eda.run(db, out, REPO_ROOT / "docs"),
         "customers": lambda: customers.run(db, out),
         "churn": lambda: churn.run(db, out, MODEL_DIR, include_torch, sensitivity),
         "explain": lambda: explain.run(MODEL_DIR, out),
+        "visitors": lambda: visitors.run(db, out, MODEL_DIR),
         "survival": lambda: survival.run(db, out, MODEL_DIR),
         "uplift": lambda: uplift.run(db, out, MODEL_DIR),
     }

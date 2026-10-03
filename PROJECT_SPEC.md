@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.4 — frozen before any modeling.**
+Status: **v0.5 — frozen before any modeling.**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -414,3 +414,4 @@ level, and hardware are recorded in `serving_benchmark.json`.
 | 0.2 | 2026-10-02 | §4.1: observation window 60 → 30 days; sensitivity values now 21-day observation and 21-day prediction; eligibility drops the now-redundant recent-event rule; cutoffs derived from `T_end` and `h`. §5.1 split rule restated to match. | With a 60-day observation window and non-overlapping train/validation/test label windows, no training cutoff fits inside RetailRocket's ~138-day span. Changed before any model was trained. |
 | 0.3 | 2026-10-02 | §4.2: survival population is returning visitors; censoring at `T_end − 30d`; Cox covariates from the first session only. | Covariates over the first 14 days with the clock starting at day 0 cause immortal-time bias; the censoring time is the last point at which a 30-day gap could still have been observed. Changed before any model was fit. |
 | 0.4 | 2026-10-02 | §6.1: uplift learners fit on a 3M-row stratified subsample of the 8.4M training rows; validation and test unchanged. | Compute budget: one LightGBM fit on 8.4M rows took ~15 minutes on the 4-core environment, putting the 22-fit ladder at several hours. Decided before any uplift result was produced; applies identically to every strategy. |
+| 0.5 | 2026-10-03 | §6.3: the causal forest (listed "where computationally feasible") is added to the ladder, fit on a 1M-row stratified subsample of the training split; selection rule (validation Qini on visit) unchanged. | Completes the pre-registered estimator list. It was omitted from the first run; the forest's training cost makes 3M rows impractical on 4 cores. Its result is reported whether or not it wins. |
