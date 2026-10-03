@@ -113,5 +113,18 @@ def publish() -> None:
         typer.echo(f"reporting.{table}: {n} rows")
 
 
+@app.command("export-powerbi")
+def export_powerbi(
+    out: Annotated[str, typer.Option(help="Workbook path.")] = "artifacts/retentioniq_powerbi.xlsx",
+) -> None:
+    """Export the star schema + model outputs to one workbook for the Power BI service."""
+    from pathlib import Path
+
+    from retentioniq.reporting import export_powerbi as _export
+
+    for sheet, n in _export(settings.database_url, Path(out)).items():
+        typer.echo(f"{sheet}: {n} rows")
+
+
 if __name__ == "__main__":
     app()

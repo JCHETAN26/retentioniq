@@ -67,3 +67,56 @@ def publish(database_url: str, artifacts: Path) -> dict[str, int]:
         _write(df, "churn_risk_scores", engine)
         written["churn_risk_scores"] = len(df)
     return written
+
+
+# Power BI service (browser) cannot reach a private Postgres, so the star schema is exported
+# to one workbook: each sheet becomes a table in a single semantic model. Line-level and
+# visitor-day facts exceed Excel's row limit and are exported as daily aggregates.
+POWERBI_QUERIES: dict[str, str] = {
+    "dim_date": "SELECT * FROM marts.dim_date",
+    "dim_customer": "SELECT * FROM marts.dim_customer",
+    "dim_product": "SELECT stock_code, description, is_non_product FROM marts.dim_product",
+    "fact_orders": "SELECT * FROM marts.fact_orders",
+    "fact_sales_daily": """
+        SELECT invoice_date AS date_day, country,
+               count(*) AS lines,
+               count(*) FILTER (WHERE is_cancellation) AS cancelled_lines,
+               coalesce(sum(line_amount) FILTER (WHERE is_qualifying), 0) AS qualifying_value,
+               coalesce(-sum(line_amount) FILTER (WHERE is_cancellation), 0) AS cancelled_value,
+               coalesce(sum(line_amount) FILTER (WHERE NOT has_customer AND line_amount > 0), 0)
+                   AS no_customer_value
+        FROM marts.fact_transactions GROUP BY 1, 2""",
+    "rfm": "SELECT * FROM marts.mart_customer_rfm",
+    "cohort_retention": "SELECT * FROM marts.mart_customer_retention",
+    "rr_funnel_daily": "SELECT * FROM marts.mart_engagement_funnel",
+    "rr_activity_daily": """
+        SELECT activity_date AS date_day, count(DISTINCT visitor_id) AS visitors,
+               sum(n_events) AS events, sum(n_views) AS views, sum(n_carts) AS carts,
+               sum(n_transactions) AS transactions, sum(n_sessions) AS sessions
+        FROM marts.mart_customer_daily_activity GROUP BY 1""",
+    "risk_scores": """
+        SELECT visitor_id, cutoff, p_inactive, inactive, risk_tier, top_category_id,
+               recency_days, sessions_obs, views_30d, transactions_obs, tenure_days,
+               activity_trend
+        FROM reporting.churn_risk_scores""",
+    "model_comparison": "SELECT * FROM reporting.churn_model_comparison",
+    "shap_global": "SELECT * FROM reporting.churn_shap_global",
+    "customer_segments": "SELECT * FROM reporting.customer_segments",
+    "segment_retention": "SELECT * FROM reporting.cohort_metrics WHERE group_type <> 'cohort'",
+    "survival_km": "SELECT * FROM reporting.survival_km",
+    "campaign_simulation": "SELECT * FROM reporting.campaign_simulation",
+    "uplift_results": "SELECT * FROM reporting.uplift_results WHERE split = 'test'",
+}
+
+
+def export_powerbi(database_url: str, out_path: Path) -> dict[str, int]:
+    engine = create_engine(database_url)
+    sizes: dict[str, int] = {}
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        for sheet, query in POWERBI_QUERIES.items():
+            df = pd.read_sql(text(query), engine)
+            for col in df.select_dtypes(include=["datetimetz"]).columns:
+                df[col] = df[col].dt.tz_localize(None)
+            df.to_excel(writer, sheet_name=sheet, index=False)
+            sizes[sheet] = len(df)
+    return sizes

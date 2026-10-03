@@ -1,5 +1,44 @@
 # Power BI report
 
+There are two ways to build it, and both use the same pages and measures:
+
+- **A. Power BI service (browser, any OS).** Export the warehouse to one workbook, upload it to
+  app.powerbi.com, then model and report entirely in the browser. See below.
+- **B. Power BI Desktop (Windows).** Connect directly to Postgres. See "Desktop route".
+
+## A. Power BI service (browser)
+
+1. **Export.** In the codespace, run `uv run retentioniq export-powerbi`. This writes
+   `artifacts/retentioniq_powerbi.xlsx`: 17 sheets, one table per sheet. The tables are the
+   star-schema marts plus the model outputs; line-level and visitor-day facts become daily
+   aggregates to stay under Excel's row limit.
+2. **Upload.** Go to app.powerbi.com → My workspace → **New item → Semantic model** (or
+   **Upload → Browse**), then pick the workbook. This creates one semantic model containing 17 tables.
+3. **Model.** Open the semantic model → **Open data model**:
+   - Mark `dim_date` as the date table, with `date_day` as the date column.
+   - Create the relationships below, by dragging a column onto the matching column.
+   - Add the measures from [`measures_service.dax`](measures_service.dax).
+
+| From (many) | To (one) |
+|---|---|
+| `fact_orders[order_date]` | `dim_date[date_day]` |
+| `fact_orders[customer_id]` | `dim_customer[customer_id]` |
+| `rfm[customer_id]` | `dim_customer[customer_id]` (one-to-one, both directions) |
+| `fact_sales_daily[date_day]` | `dim_date[date_day]` |
+| `rr_funnel_daily[activity_date]` | `dim_date[date_day]` |
+| `rr_activity_daily[date_day]` | `dim_date[date_day]` |
+
+   Leave the model-output tables (`risk_scores`, `model_comparison`, `shap_global`,
+   `customer_segments`, `segment_retention`, `survival_km`, `campaign_simulation`,
+   `uplift_results`) unrelated. Each is self-contained, and the datasets are never joined
+   to each other (PROJECT_SPEC §2).
+4. **Report.** From the semantic model, choose **Create report**, then build the pages in the
+   table under "Pages" below.
+5. **Refresh.** After `make evaluate`, re-run the export and upload the workbook again,
+   replacing the existing semantic model.
+
+## Desktop route
+
 This is the analyst-facing report. It connects to the **warehouse**, never to raw CSVs:
 - `marts.*`: dbt star schema
 - `reporting.*`: model outputs written by `retentioniq publish`

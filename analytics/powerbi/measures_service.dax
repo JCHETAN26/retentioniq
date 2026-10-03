@@ -1,0 +1,53 @@
+// RetentionIQ — DAX measures for the Power BI service (browser) model built from
+// retentioniq_powerbi.xlsx. Table names = sheet names. In the web model view:
+// select a table → New measure → paste one measure at a time.
+
+// ---------- Sales & customers (fact_orders) ----------
+Revenue = SUM ( fact_orders[order_value] )
+Orders = DISTINCTCOUNT ( fact_orders[invoice] )
+Customers = DISTINCTCOUNT ( fact_orders[customer_id] )
+AOV = DIVIDE ( [Revenue], [Orders] )
+Orders per Customer = DIVIDE ( [Orders], [Customers] )
+New Customers =
+CALCULATE ( DISTINCTCOUNT ( fact_orders[customer_id] ), fact_orders[customer_order_number] = 1 )
+Repeat Customers =
+COUNTROWS ( FILTER ( VALUES ( fact_orders[customer_id] ), CALCULATE ( COUNTROWS ( fact_orders ) ) >= 2 ) )
+Repeat Purchase Rate = DIVIDE ( [Repeat Customers], [Customers] )
+Revenue LY = CALCULATE ( [Revenue], SAMEPERIODLASTYEAR ( dim_date[date_day] ) )
+Revenue YoY % = DIVIDE ( [Revenue] - [Revenue LY], [Revenue LY] )
+
+// ---------- Sales quality (fact_sales_daily) ----------
+Cancelled Value = SUM ( fact_sales_daily[cancelled_value] )
+Cancellation Rate = DIVIDE ( [Cancelled Value], SUM ( fact_sales_daily[qualifying_value] ) )
+No-Customer Value Share =
+DIVIDE ( SUM ( fact_sales_daily[no_customer_value] ), SUM ( fact_sales_daily[qualifying_value] ) + SUM ( fact_sales_daily[no_customer_value] ) )
+
+// ---------- Segments & value ----------
+Segment Revenue Share = DIVIDE ( [Revenue], CALCULATE ( [Revenue], ALL ( rfm[rfm_segment] ) ) )
+Segment Customer Share = DIVIDE ( [Customers], CALCULATE ( [Customers], ALL ( rfm[rfm_segment] ) ) )
+Top 10% Customer Revenue Share =
+VAR ranked = ADDCOLUMNS ( VALUES ( dim_customer[customer_id] ), "@rev", CALCULATE ( [Revenue] ) )
+VAR top = TOPN ( MAX ( 1, ROUND ( COUNTROWS ( ranked ) * 0.1, 0 ) ), ranked, [@rev], DESC )
+RETURN DIVIDE ( SUMX ( top, [@rev] ), SUMX ( ranked, [@rev] ) )
+
+// ---------- Cohorts ----------
+Retention Rate = DIVIDE ( SUM ( cohort_retention[active_customers] ), SUM ( cohort_retention[cohort_size] ) )
+M1 Retention = CALCULATE ( [Retention Rate], cohort_retention[month_number] = 1 )
+M3 Retention = CALCULATE ( [Retention Rate], cohort_retention[month_number] = 3 )
+Segment Retention = DIVIDE ( SUM ( segment_retention[active_customers] ), SUM ( segment_retention[cohort_size] ) )
+
+// ---------- Engagement funnel (RetailRocket) ----------
+Sessions = SUM ( rr_funnel_daily[sessions] )
+View to Cart Rate = DIVIDE ( SUM ( rr_funnel_daily[sessions_with_cart] ), SUM ( rr_funnel_daily[sessions_with_view] ) )
+Cart to Purchase Rate =
+DIVIDE ( SUM ( rr_funnel_daily[sessions_with_transaction] ), SUM ( rr_funnel_daily[sessions_with_cart] ) )
+Session Conversion Rate = DIVIDE ( SUM ( rr_funnel_daily[sessions_with_transaction] ), [Sessions] )
+Daily Visitors = SUM ( rr_activity_daily[visitors] )
+
+// ---------- Risk (model outputs) ----------
+Scored Visitors = COUNTROWS ( risk_scores )
+Avg Predicted Risk = AVERAGE ( risk_scores[p_inactive] )
+Actual Inactive Rate = AVERAGE ( risk_scores[inactive] )
+High-risk Share = DIVIDE ( CALCULATE ( [Scored Visitors], risk_scores[risk_tier] = "high" ), [Scored Visitors] )
+Precision in High Tier = CALCULATE ( [Actual Inactive Rate], risk_scores[risk_tier] = "high" )
+Calibration Gap = [Avg Predicted Risk] - [Actual Inactive Rate]
