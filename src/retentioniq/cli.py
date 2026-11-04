@@ -61,6 +61,9 @@ def evaluate(
     ] = None,
     torch: Annotated[bool, typer.Option(help="Include the PyTorch model (M5).")] = True,
     sensitivity: Annotated[bool, typer.Option(help="Run churn sensitivity analysis.")] = True,
+    learning_curve: Annotated[
+        bool, typer.Option(help="Run uplift training-size learning curve.")
+    ] = True,
 ) -> None:
     """Regenerate all artifacts in PROJECT_SPEC.md §8 from the warehouse marts."""
     import logging
@@ -71,7 +74,9 @@ def evaluate(
     unknown = set(only or []) - set(STAGES)
     if unknown:
         raise typer.BadParameter(f"unknown stage(s): {sorted(unknown)}; choose from {STAGES}")
-    manifest = run(only, include_torch=torch, sensitivity=sensitivity)
+    manifest = run(
+        only, include_torch=torch, sensitivity=sensitivity, learning_curve=learning_curve
+    )
     for name, info in manifest["stages"].items():
         typer.echo(f"{name}: {info['seconds']}s  {info['summary']}")
 

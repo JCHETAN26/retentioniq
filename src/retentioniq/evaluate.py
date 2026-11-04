@@ -19,32 +19,38 @@ from retentioniq.tracking import git_sha
 
 log = logging.getLogger(__name__)
 MODEL_DIR = REPO_ROOT / "data" / "models"
-STAGES = ("eda", "customers", "churn", "explain", "visitors", "survival", "uplift")
+STAGES = ("eda", "customers", "clv", "churn", "explain", "visitors", "survival", "uplift")
 
 
-def _stages(include_torch: bool, sensitivity: bool) -> dict[str, Callable[[], Any]]:
-    from retentioniq.analytics import customers, eda, visitors
+def _stages(
+    include_torch: bool, sensitivity: bool, learning_curve: bool = True
+) -> dict[str, Callable[[], Any]]:
+    from retentioniq.analytics import clv, customers, eda, visitors
     from retentioniq.training import churn, explain, survival, uplift
 
     db, out = settings.database_url, settings.artifacts_dir
     return {
         "eda": lambda: eda.run(db, out, REPO_ROOT / "docs"),
         "customers": lambda: customers.run(db, out),
+        "clv": lambda: clv.run(db, out),
         "churn": lambda: churn.run(db, out, MODEL_DIR, include_torch, sensitivity),
         "explain": lambda: explain.run(MODEL_DIR, out),
         "visitors": lambda: visitors.run(db, out, MODEL_DIR),
         "survival": lambda: survival.run(db, out, MODEL_DIR),
-        "uplift": lambda: uplift.run(db, out, MODEL_DIR),
+        "uplift": lambda: uplift.run(db, out, MODEL_DIR, learning_curve=learning_curve),
     }
 
 
 def run(
-    only: list[str] | None = None, include_torch: bool = True, sensitivity: bool = True
+    only: list[str] | None = None,
+    include_torch: bool = True,
+    sensitivity: bool = True,
+    learning_curve: bool = True,
 ) -> dict[str, Any]:
     out = settings.artifacts_dir
     out.mkdir(parents=True, exist_ok=True)
     manifest_path = out / "manifest.json"
-    stages = _stages(include_torch, sensitivity)
+    stages = _stages(include_torch, sensitivity, learning_curve)
     manifest: dict[str, Any] = {"stages": {}}
     for name in only or list(STAGES):
         log.info("stage %s", name)

@@ -26,6 +26,7 @@ from retentioniq.features.retailrocket import (
     build_snapshots,
 )
 from retentioniq.models.churn.ladder import (
+    COMPLEXITY_ORDER,
     ChurnModel,
     GradientBoosting,
     Logistic,
@@ -37,6 +38,7 @@ from retentioniq.models.churn.metrics import (
     best_f1_threshold,
     bootstrap_ci,
     classification_metrics,
+    cost_optimal_threshold,
     paired_bootstrap_diff,
     reliability_table,
 )
@@ -132,6 +134,16 @@ def run_ladder(
         m["pr_auc_ci_low"], m["pr_auc_ci_high"] = bootstrap_ci(
             y_te, p_test, average_precision_score, groups, N_BOOT, SEED
         )
+
+        def _ret_score(y_chunk: np.ndarray, p_chunk: np.ndarray) -> float:
+            y_ret = (np.asarray(y_chunk) == 0).astype(int)
+            if y_ret.min() == y_ret.max():
+                return 0.0
+            return float(average_precision_score(y_ret, 1.0 - np.asarray(p_chunk, dtype=float)))
+
+        m["pr_auc_returners_ci_low"], m["pr_auc_returners_ci_high"] = bootstrap_ci(
+            y_te, p_test, _ret_score, groups, N_BOOT, SEED
+        )
         m["val_pr_auc"] = float(average_precision_score(y_va, cal(p_val)))
         rows.append({"model": model.name, **m, "params": json.dumps(model.params)})
         calibration[model.name] = {
@@ -163,14 +175,152 @@ def run_ladder(
         comparison[f"delta_pr_auc_vs_{ref}_ci_low"] = lows
         comparison[f"delta_pr_auc_vs_{ref}_ci_high"] = highs
 
-    # Champion: highest validation PR-AUC. M5 must also beat M4 significantly (§5.5).
+    # Best model by validation PR-AUC
     ranked = comparison.sort_values("val_pr_auc", ascending=False)
-    champion = ranked.iloc[0]["model"]
-    if champion == "M5_pytorch_mlp":
-        m5 = comparison.set_index("model").loc["M5_pytorch_mlp"]
-        if not m5["delta_pr_auc_vs_M4_lightgbm_ci_low"] > 0:
-            champion = "M4_lightgbm"
+    best_val_model = str(ranked.iloc[0]["model"])
+
+    # Compute pairwise deltas for all pairs where model_a is more complex than model_b
+    pairwise_rows = []
+    models_present = [m for m in COMPLEXITY_ORDER if m in comparison["model"].to_numpy()]
+    for i, model_a in enumerate(models_present):
+        for model_b in models_present[:i]:
+            score_a = float(comparison.loc[comparison["model"] == model_a, "pr_auc"].iloc[0])
+            score_b = float(comparison.loc[comparison["model"] == model_b, "pr_auc"].iloc[0])
+            delta = score_a - score_b
+            lo, hi = paired_bootstrap_diff(
+                y_te, preds[model_a], preds[model_b], average_precision_score, groups, N_BOOT, SEED
+            )
+            pairwise_rows.append(
+                {
+                    "model_a": model_a,
+                    "model_b": model_b,
+                    "delta_pr_auc": delta,
+                    "ci_low": lo,
+                    "ci_high": hi,
+                    "significant": bool(not (lo <= 0 <= hi)),
+                }
+            )
+    pd.DataFrame(pairwise_rows).to_csv(out / "churn_pairwise_deltas.csv", index=False)
+
+    # Complexity rule (spec v0.6 §5.5): walk down the ladder from best_val_model to find the
+    # simplest model whose paired bootstrap delta vs best_val_model has a CI spanning zero.
+    best_idx = models_present.index(best_val_model)
+    champion = best_val_model
+    champ_delta_ci = (0.0, 0.0)
+    for cand in models_present[:best_idx]:
+        lo, hi = paired_bootstrap_diff(
+            y_te, preds[cand], preds[best_val_model], average_precision_score, groups, N_BOOT, SEED
+        )
+        if lo <= 0.0 <= hi:
+            champion = cand
+            champ_delta_ci = (lo, hi)
+            break
+
     comparison["is_champion"] = comparison["model"] == champion
+
+    champ_score = float(comparison.loc[comparison["model"] == champion, "pr_auc"].iloc[0])
+    best_score = float(comparison.loc[comparison["model"] == best_val_model, "pr_auc"].iloc[0])
+    delta_vs_best = {
+        "delta_pr_auc": champ_score - best_score,
+        "ci_low": champ_delta_ci[0],
+        "ci_high": champ_delta_ci[1],
+        "significant": bool(not (champ_delta_ci[0] <= 0 <= champ_delta_ci[1])),
+    }
+    selection_reasoning = {
+        "best_by_validation": best_val_model,
+        "selected_champion": champion,
+        "delta_vs_best": delta_vs_best,
+        "is_lightgbm": champion == "M4_lightgbm",
+        "reasoning": (
+            f"Best model by validation PR-AUC was {best_val_model}. Walking down the ladder, "
+            f"{champion} is the simplest model whose test PR-AUC delta CI vs {best_val_model} "
+            f"includes zero ([{champ_delta_ci[0]:.4f}, {champ_delta_ci[1]:.4f}])."
+        ),
+    }
+    (out / "churn_selection.json").write_text(json.dumps(selection_reasoning, indent=2) + "\n")
+
+    p_va_champ = fitted[champion][1](fitted[champion][0].predict_proba(val))
+    p_te_champ = preds[champion]
+
+    # Cost-optimal operating threshold scenarios (§1.4)
+    threshold_scenarios = []
+    save_rate = 0.15
+    for cost in (0.50, 1.00, 2.00):
+        for val_saved in (20.0, 50.0, 100.0):
+            thr = cost_optimal_threshold(y_va, p_va_champ, cost, val_saved, save_rate)
+            contacted = p_te_champ >= thr
+            share_contacted = float(np.mean(contacted))
+            profit = float(
+                np.sum(y_te[contacted] * save_rate * val_saved) - np.sum(contacted) * cost
+            )
+            threshold_scenarios.append(
+                {
+                    "cost_contact": cost,
+                    "value_saved": val_saved,
+                    "save_rate": save_rate,
+                    "threshold": thr,
+                    "share_contacted": share_contacted,
+                    "expected_profit": profit,
+                    "scenario_note": "SCENARIO - hypothetical cost/value, not observed data",
+                }
+            )
+    pd.DataFrame(threshold_scenarios).to_csv(out / "churn_threshold_scenarios.csv", index=False)
+
+    # Error analysis by segment (§1.5)
+    thr_f1 = float(comparison.loc[comparison["model"] == champion, "threshold"].iloc[0])
+    pred_inactive = p_te_champ >= thr_f1
+
+    def _error_slice(dim: str, seg: str, mask: np.ndarray) -> dict[str, Any]:
+        n = int(mask.sum())
+        if n == 0:
+            return {
+                "dimension": dim,
+                "segment": seg,
+                "n": 0,
+                "actual_inactive": 0,
+                "actual_active": 0,
+                "fp": 0,
+                "fn": 0,
+                "fpr": float("nan"),
+                "fnr": float("nan"),
+            }
+        y_slice = y_te[mask]
+        p_slice = pred_inactive[mask]
+        n_inactive = int((y_slice == 1).sum())
+        n_active = int((y_slice == 0).sum())
+        fp = int(((y_slice == 0) & p_slice).sum())
+        fn = int(((y_slice == 1) & (~p_slice)).sum())
+        return {
+            "dimension": dim,
+            "segment": seg,
+            "n": n,
+            "actual_inactive": n_inactive,
+            "actual_active": n_active,
+            "fp": fp,
+            "fn": fn,
+            "fpr": fp / n_active if n_active > 0 else float("nan"),
+            "fnr": fn / n_inactive if n_inactive > 0 else float("nan"),
+        }
+
+    err_rows = []
+    tenure = test["tenure_days"].to_numpy()
+    err_rows.append(_error_slice("tenure_days", "<7d", tenure < 7))
+    err_rows.append(_error_slice("tenure_days", "7-14d", (tenure >= 7) & (tenure < 14)))
+    err_rows.append(_error_slice("tenure_days", "14-30d", (tenure >= 14) & (tenure < 30)))
+    err_rows.append(_error_slice("tenure_days", "30d+", tenure >= 30))
+
+    s_obs = test["sessions_obs"].to_numpy()
+    q1 = np.quantile(s_obs, 1 / 3)
+    q2 = np.quantile(s_obs, 2 / 3)
+    err_rows.append(_error_slice("sessions_obs", "low (T1)", s_obs <= q1))
+    err_rows.append(_error_slice("sessions_obs", "medium (T2)", (s_obs > q1) & (s_obs <= q2)))
+    err_rows.append(_error_slice("sessions_obs", "high (T3)", s_obs > q2))
+
+    purchased = test["ever_purchased"].to_numpy()
+    err_rows.append(_error_slice("ever_purchased", "non_purchasers (0)", purchased == 0))
+    err_rows.append(_error_slice("ever_purchased", "purchasers (1)", purchased == 1))
+
+    pd.DataFrame(err_rows).to_csv(out / "churn_error_analysis.csv", index=False)
 
     seg_rows = []
     for seg, mask in _segments(test).items():

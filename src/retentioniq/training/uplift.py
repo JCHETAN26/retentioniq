@@ -26,12 +26,21 @@ from retentioniq.analytics.experiments.inference import (
     standardized_mean_differences,
 )
 from retentioniq.ingestion.load import libpq_url
-from retentioniq.models.uplift.learners import FEATURES, ResponseModel, strategies
+from retentioniq.models.uplift.learners import (
+    FEATURES,
+    ResponseModel,
+    get_strategy,
+    strategies,
+)
 from retentioniq.models.uplift.metrics import (
     curve_frame,
     evaluate_uplift,
     incremental_at_k,
+    paired_bootstrap_qini_diff,
+    qini_coefficient,
     qini_curve,
+    top_k_counts,
+    uplift_by_score_decile,
     uplift_curve,
 )
 from retentioniq.tracking import log_run
@@ -128,7 +137,9 @@ def heterogeneity_by_decile(test: pd.DataFrame, response_score: np.ndarray) -> p
     return pd.DataFrame(rows)
 
 
-def run(database_url: str, artifacts: Path, model_dir: Path) -> dict[str, Any]:
+def run(
+    database_url: str, artifacts: Path, model_dir: Path, learning_curve: bool = True
+) -> dict[str, Any]:
     artifacts.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
     df = load_population(database_url)
@@ -184,7 +195,75 @@ def run(database_url: str, artifacts: Path, model_dir: Path) -> dict[str, Any]:
     res.to_csv(artifacts / "uplift_results.csv", index=False)
     pd.concat(curves).to_csv(artifacts / "uplift_curves.csv", index=False)
 
-    # Campaign simulation on the held-out test population.
+    # 2.2 S-learner diagnostics check
+    s_lgbm = fitted.get(("s_learner_lgbm", PRIMARY))
+    if s_lgbm is not None and hasattr(s_lgbm, "diagnostics"):
+        diag = s_lgbm.diagnostics(val)
+        (artifacts / "uplift_s_learner_diagnostics.json").write_text(
+            json.dumps(diag, indent=2, default=float)
+        )
+
+    # 2.3 Paired bootstrap Qini difference test
+    # Take a 500k row stratified subsample (fixed seed) for fast bootstrap
+    boot_test_rows = 500_000
+    if len(test) > boot_test_rows:
+        strata_test = test["treatment"].astype(str) + "_" + test["visit"].astype(str)
+        test_boot, _ = train_test_split(
+            test,
+            train_size=boot_test_rows,
+            stratify=strata_test,
+            random_state=SEED,
+        )
+        boot_idx = test_boot.index.to_numpy()
+    else:
+        test_boot = test
+        boot_idx = np.arange(len(test))
+
+    pairwise_rows = []
+    for outcome in OUTCOMES:
+        y_boot = test_boot[outcome].to_numpy()
+        t_boot = test_boot["treatment"].to_numpy()
+        val_out = res[(res["split"] == "validation") & (res["outcome"] == outcome)]
+        top3 = (
+            val_out.sort_values("qini_coefficient", ascending=False)["strategy"]
+            .unique()[:3]
+            .tolist()
+        )
+        strats_to_compare = list(top3)
+        if "response_model" not in strats_to_compare:
+            strats_to_compare.append("response_model")
+        for i in range(len(strats_to_compare)):
+            for j in range(i + 1, len(strats_to_compare)):
+                sa_name, sb_name = strats_to_compare[i], strats_to_compare[j]
+                sa = scores_test[(sa_name, outcome)][boot_idx]
+                sb = scores_test[(sb_name, outcome)][boot_idx]
+                diff = paired_bootstrap_qini_diff(y_boot, t_boot, sa, sb, n_boot=1000, seed=SEED)
+                pairwise_rows.append(
+                    {
+                        "outcome": outcome,
+                        "strategy_a": sa_name,
+                        "strategy_b": sb_name,
+                        **diff,
+                    }
+                )
+    pd.DataFrame(pairwise_rows).to_csv(artifacts / "uplift_pairwise_qini.csv", index=False)
+
+    # 2.4 Uplift calibration deciles table
+    calib_rows = []
+    for strat_name in dict.fromkeys([best, "response_model"]):
+        for outcome in OUTCOMES:
+            s_test = scores_test[(strat_name, outcome)]
+            dec_rows = uplift_by_score_decile(
+                test[outcome].to_numpy(),
+                test["treatment"].to_numpy(),
+                s_test,
+                outcome_name=outcome,
+            )
+            for r in dec_rows:
+                calib_rows.append({"strategy": strat_name, "outcome": outcome, **r})
+    pd.DataFrame(calib_rows).to_csv(artifacts / "uplift_calibration_deciles.csv", index=False)
+
+    # Coarse campaign simulation on the held-out test population.
     sim_rows = []
     for reach in REACH:
         for name in dict.fromkeys(["random", "response_model", best]):
@@ -211,6 +290,76 @@ def run(database_url: str, artifacts: Path, model_dir: Path) -> dict[str, Any]:
     sim["scenario_note"] = "SCENARIO - hypothetical cost/value, not observed data"
     sim["population"] = len(test)
     sim.to_csv(artifacts / "campaign_simulation.csv", index=False)
+
+    # 2.5 Fine reach grid campaign simulation and optimal reach
+    fine_reaches = np.round(np.arange(0.01, 0.51, 0.01), 2)
+    fine_sim_rows: list[dict[str, Any]] = []
+    strategies_fine = list(dict.fromkeys(["random", "response_model", best]))
+    for name in strategies_fine:
+        s_conv = scores_test[(name, "conversion")]
+        y_conv = test["conversion"].to_numpy()
+        t_conv = test["treatment"].to_numpy()
+        n_pop = len(test)
+        strat_rows: list[dict[str, Any]] = []
+        for reach in fine_reaches:
+            yt, nt, yc, nc = top_k_counts(y_conv, t_conv, s_conv, float(reach))
+            targeted = float(reach) * n_pop
+            inc_conv = float((yt / nt - yc / nc) * targeted if nt and nc else 0.0)
+            cost = float(targeted * SCENARIO["cost_per_treatment"])
+            net_val = float(inc_conv * SCENARIO["value_per_conversion"] - cost)
+            strat_rows.append(
+                {
+                    "strategy": name,
+                    "reach": float(reach),
+                    "targeted": targeted,
+                    "incremental_conversions": inc_conv,
+                    "cost": cost,
+                    "net_value": net_val,
+                }
+            )
+        opt_idx = int(np.argmax([r["net_value"] for r in strat_rows]))
+        opt_reach = strat_rows[opt_idx]["reach"]
+        max_net = strat_rows[opt_idx]["net_value"]
+        for r in strat_rows:
+            r["optimal_reach"] = opt_reach
+            r["max_net_value"] = max_net
+            r["is_optimal"] = bool(r["reach"] == opt_reach)
+            fine_sim_rows.append(r)
+    sim_fine = pd.DataFrame(fine_sim_rows)
+    sim_fine["scenario_note"] = "SCENARIO - hypothetical cost/value, not observed data"
+    sim_fine.to_csv(artifacts / "campaign_optimal_reach.csv", index=False)
+
+    # 2.6 Training-size learning curve
+    if learning_curve:
+        curve_rows = []
+        target_sizes = [500_000, 1_000_000, 2_000_000, 3_000_000]
+        sizes = [s for s in target_sizes if s <= len(train)]
+        if not sizes:
+            sizes = [max(10, len(train) // 4), max(20, len(train) // 2), len(train)]
+        for s in sizes:
+            if s < len(train):
+                strata_sub = train["treatment"].astype(str) + "_" + train["visit"].astype(str)
+                sub_train, _ = train_test_split(
+                    train, train_size=s, stratify=strata_sub, random_state=SEED
+                )
+            else:
+                sub_train = train
+            inst = get_strategy(best)
+            inst.fit(sub_train, sub_train["treatment"].to_numpy(), sub_train[PRIMARY].to_numpy())
+            s_val = inst.score(val)
+            s_test = inst.score(test)
+            q_val = qini_coefficient(val[PRIMARY].to_numpy(), val["treatment"].to_numpy(), s_val)
+            q_test = qini_coefficient(
+                test[PRIMARY].to_numpy(), test["treatment"].to_numpy(), s_test
+            )
+            curve_rows.append(
+                {
+                    "train_size": s,
+                    "val_qini": float(q_val),
+                    "test_qini": float(q_test),
+                }
+            )
+        pd.DataFrame(curve_rows).to_csv(artifacts / "uplift_learning_curve.csv", index=False)
 
     resp = fitted[("response_model", "visit")]
     assert isinstance(resp, ResponseModel)

@@ -68,6 +68,13 @@ def classification_metrics(
 ) -> dict[str, float]:
     y, p = np.asarray(y), np.asarray(p, dtype=float)
     base = float(y.mean())
+    y_ret = (y == 0).astype(int)
+    p_ret = 1.0 - p
+    ret_base = float(y_ret.mean())
+    pr_auc_ret = float(average_precision_score(y_ret, p_ret)) if 0 < ret_base < 1 else float("nan")
+    pk_ret = precision_at_k(y_ret, p_ret, 0.10)
+    lift_ret = pk_ret / ret_base if ret_base > 0 else float("nan")
+
     out = {
         "n": float(len(y)),
         "base_rate": base,
@@ -75,6 +82,10 @@ def classification_metrics(
         "roc_auc": float(roc_auc_score(y, p)) if 0 < base < 1 else float("nan"),
         "brier": float(brier_score_loss(y, np.clip(p, 0, 1))),
         "ece": expected_calibration_error(y, np.clip(p, 0, 1)),
+        "returner_base_rate": ret_base,
+        "pr_auc_returners": pr_auc_ret,
+        "precision_returners@10": pk_ret,
+        "lift_returners@10": lift_ret,
     }
     for f in K_FRACTIONS:
         pk = precision_at_k(y, p, f)
@@ -85,6 +96,30 @@ def classification_metrics(
         out["f1"] = f1_at(y, p, threshold)
         out["threshold"] = threshold
     return out
+
+
+def cost_optimal_threshold(
+    y: np.ndarray,
+    p: np.ndarray,
+    cost_contact: float,
+    value_saved: float,
+    save_rate: float,
+) -> float:
+    """Find operating threshold maximizing expected profit using observed labels:
+    sum(y_i * save_rate * value_saved) - n_contacted * cost_contact.
+    """
+    y_arr = np.asarray(y)
+    p_arr = np.asarray(p, dtype=float)
+    order = np.argsort(-p_arr, kind="stable")
+    ys = y_arr[order]
+    ps = p_arr[order]
+    cum_saved = np.cumsum(ys) * save_rate * value_saved
+    cum_cost = np.arange(1, len(ys) + 1) * cost_contact
+    profits = cum_saved - cum_cost
+    best_idx = int(np.argmax(profits))
+    if profits[best_idx] <= 0:
+        return 1.0
+    return float(ps[best_idx])
 
 
 def bootstrap_ci(
@@ -108,7 +143,12 @@ def paired_bootstrap_diff(
     n_boot: int = 1000,
     seed: int = 0,
 ) -> tuple[float, float]:
-    """CI of metric(p_a) - metric(p_b) on the same resamples (or of metric(p_a) if p_b is None)."""
+    """CI of metric(p_a) - metric(p_b) on the same resamples (or of metric(p_a) if p_b is None).
+
+    Clustering by `visitor_id` (via `groups`) matters when a visitor appears more than once
+    (such as across training snapshots). On a single snapshot (e.g. the test set), each
+    visitor appears at most once, making this equivalent to an ordinary i.i.d. bootstrap.
+    """
     rng = np.random.default_rng(seed)
     y, p_a = np.asarray(y), np.asarray(p_a)
     if groups is None:

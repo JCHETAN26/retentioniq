@@ -1,4 +1,4 @@
-.PHONY: report promote monitor publish serve benchmark reproduce dbt install lint format typecheck test test-integration check up down data ingest evaluate
+.PHONY: report promote monitor publish serve benchmark reproduce dbt install lint format typecheck test test-integration check up down data ingest evaluate sql-check sample demo
 
 install:        ## All deps (core, ML, survival, deep, dbt, serving, monitoring) + dev tools
 	uv sync --group dev --all-extras
@@ -60,3 +60,15 @@ benchmark:      ## Load-test a running API -> artifacts/serving_benchmark.json
 	uv run python evaluation/benchmark_serving.py --url http://localhost:8000
 
 reproduce: up data ingest dbt evaluate report  ## Everything, from raw downloads to the results report
+
+sql-check:      ## Parse & validate syntax of analytical SQL showcase queries
+	uv run python scripts/sql_check.py
+
+sample:         ## Generate small demo parquet sample datasets in data/sample/
+	uv run python scripts/make_sample.py
+
+demo: sample    ## Execute the three showcase notebooks on sample data
+	uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_customer_intelligence.ipynb
+	uv run jupyter nbconvert --to notebook --execute --inplace notebooks/02_inactivity_and_survival.ipynb
+	uv run jupyter nbconvert --to notebook --execute --inplace notebooks/03_uplift_targeting.ipynb
+

@@ -12,6 +12,7 @@ model scores ~0 and a perfect one 1.
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -147,3 +148,88 @@ def curve_frame(curve: Curve, n_points: int = 101) -> pd.DataFrame:
     idx = np.unique(np.linspace(0, len(curve.depth) - 1, n_points).round().astype(int))
     n = curve.depth[-1]
     return pd.DataFrame({"fraction": curve.depth[idx] / n, "value": curve.value[idx]})
+
+
+def paired_bootstrap_qini_diff(
+    y: np.ndarray,
+    t: np.ndarray,
+    score_a: np.ndarray,
+    score_b: np.ndarray,
+    n_boot: int = 1000,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Percentile CI and empirical p-value of qini_coefficient(a) - qini_coefficient(b),
+    stratified by treatment arm.
+    """
+    rng = np.random.default_rng(seed)
+    y_arr = np.asarray(y, dtype=float)
+    t_arr = np.asarray(t, dtype=int)
+    sa_arr = np.asarray(score_a, dtype=float)
+    sb_arr = np.asarray(score_b, dtype=float)
+
+    idx_1 = np.where(t_arr == 1)[0]
+    idx_0 = np.where(t_arr == 0)[0]
+    n1, n0 = len(idx_1), len(idx_0)
+
+    qa_point = qini_coefficient(y_arr, t_arr, sa_arr)
+    qb_point = qini_coefficient(y_arr, t_arr, sb_arr)
+    delta_point = float(qa_point - qb_point)
+
+    deltas = []
+    for _ in range(n_boot):
+        sample_1 = rng.choice(idx_1, size=n1, replace=True)
+        sample_0 = rng.choice(idx_0, size=n0, replace=True)
+        sample_idx = np.concatenate([sample_1, sample_0])
+        qa = qini_coefficient(y_arr[sample_idx], t_arr[sample_idx], sa_arr[sample_idx])
+        qb = qini_coefficient(y_arr[sample_idx], t_arr[sample_idx], sb_arr[sample_idx])
+        deltas.append(qa - qb)
+
+    deltas_arr = np.array(deltas)
+    lo, hi = np.quantile(deltas_arr, [0.025, 0.975])
+    p_val = 2.0 * min(float(np.mean(deltas_arr <= 0)), float(np.mean(deltas_arr >= 0)))
+    p_val = min(1.0, max(0.0, p_val))
+    sig = bool(lo > 0 or hi < 0)
+    return {
+        "delta_qini": delta_point,
+        "ci_low": float(lo),
+        "ci_high": float(hi),
+        "p_value": p_val,
+        "significant": sig,
+    }
+
+
+def uplift_by_score_decile(
+    y: np.ndarray,
+    t: np.ndarray,
+    score: np.ndarray,
+    outcome_name: str = "visit",
+) -> list[dict[str, Any]]:
+    """Partition population into 10 score deciles (decile 10 = highest predicted uplift)
+    and report observed treatment rate, control rate, uplift, Newcombe CI, and predicted uplift.
+    """
+    from retentioniq.analytics.experiments.inference import compare_arms
+
+    # Rank ascending so decile 0 is lowest scores (decile 1) and decile 9 is highest (decile 10)
+    ranks = pd.Series(score).rank(method="first", ascending=True)
+    deciles = pd.qcut(ranks, 10, labels=False)
+    y_arr = np.asarray(y)
+    t_arr = np.asarray(t)
+    score_arr = np.asarray(score, dtype=float)
+
+    rows = []
+    for d in range(10):
+        mask = (deciles == d).to_numpy()
+        cmp = compare_arms(y_arr[mask], t_arr[mask], outcome=outcome_name)
+        rows.append(
+            {
+                "decile": d + 1,
+                "n": int(mask.sum()),
+                "rate_control": cmp.rate_control,
+                "rate_treatment": cmp.rate_treatment,
+                "observed_uplift": cmp.ate,
+                "ci_low": cmp.ate_ci_newcombe[0],
+                "ci_high": cmp.ate_ci_newcombe[1],
+                "predicted_uplift": float(score_arr[mask].mean()) if mask.any() else 0.0,
+            }
+        )
+    return rows

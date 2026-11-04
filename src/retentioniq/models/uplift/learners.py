@@ -134,10 +134,43 @@ class SLearner:
         x0 = x[FEATURES].assign(treatment=0)
         return np.asarray(self.model.predict_proba(x1)[:, 1] - self.model.predict_proba(x0)[:, 1])
 
+    def diagnostics(self, x_val: pd.DataFrame) -> dict[str, Any]:
+        """Diagnostic metrics for S-learner: treatment feature importance and validation effects."""
+        booster = getattr(self.model, "booster_", None)
+        if booster is None:
+            return {}
+        feature_names = booster.feature_name()
+        gain_importances = booster.feature_importance(importance_type="gain")
+        split_importances = booster.feature_importance(importance_type="split")
+
+        gain_dict = dict(zip(feature_names, [float(v) for v in gain_importances], strict=False))
+        split_dict = dict(zip(feature_names, [int(v) for v in split_importances], strict=False))
+
+        ranked = sorted(gain_dict.items(), key=lambda item: item[1], reverse=True)
+        ranks = {name: rank + 1 for rank, (name, _) in enumerate(ranked)}
+
+        scores = self.score(x_val)
+        t_gain = float(gain_dict.get("treatment", 0.0))
+        t_split = int(split_dict.get("treatment", 0))
+        return {
+            "treatment_split_count": t_split,
+            "treatment_gain": t_gain,
+            "treatment_split_gain": t_gain,
+            "treatment_rank": int(ranks.get("treatment", len(feature_names))),
+            "treatment_gain_rank": int(ranks.get("treatment", len(feature_names))),
+            "n_features": len(feature_names),
+            "zero_or_negligible": bool(t_split == 0 or t_gain < 1e-6),
+            "val_effect_mean": float(np.mean(scores)),
+            "tau_validation_mean": float(np.mean(scores)),
+            "tau_validation_std": float(np.std(scores)),
+            "tau_validation_share_zero": float(np.mean(scores == 0.0)),
+            "tau_validation_share_negative": float(np.mean(scores < 0.0)),
+        }
+
 
 @dataclass
 class XLearner:
-    """X-learner (Kunzel et al. 2019) with the known randomization propensity e = P(T=1)."""
+    """X-learner (Künzel et al. 2019) with 2-fold cross-fitting and known propensity e = P(T=1)."""
 
     name: str = "x_learner_lgbm"
     first_stage: TwoModel = field(default_factory=TwoModel)
@@ -146,18 +179,59 @@ class XLearner:
     propensity: float = 0.5
 
     def fit(self, x: pd.DataFrame, t: np.ndarray, y: np.ndarray) -> "XLearner":
+        from sklearn.model_selection import StratifiedKFold
+
         self.propensity = float(np.mean(t))
-        self.first_stage.fit(x, t, y)
-        mu1, mu0 = self.first_stage.mu(x)
-        d1 = y[t == 1] - mu0[t == 1]  # imputed effect for treated
-        d0 = mu1[t == 0] - y[t == 0]  # imputed effect for control
-        self.tau1 = _lgbm_regressor().fit(x.loc[t == 1, FEATURES], d1)
-        self.tau0 = _lgbm_regressor().fit(x.loc[t == 0, FEATURES], d0)
+        t_arr = np.asarray(t)
+        y_arr = np.asarray(y)
+        x_features = x[FEATURES].reset_index(drop=True)
+
+        skf = StratifiedKFold(n_splits=2, shuffle=True, random_state=SEED)
+        strata = t_arr.astype(str) + "_" + y_arr.astype(str)
+
+        d1 = np.zeros(int(np.sum(t_arr == 1)), dtype=float)
+        d0 = np.zeros(int(np.sum(t_arr == 0)), dtype=float)
+
+        t1_indices = np.where(t_arr == 1)[0]
+        t0_indices = np.where(t_arr == 0)[0]
+        t1_pos = {idx: pos for pos, idx in enumerate(t1_indices)}
+        t0_pos = {idx: pos for pos, idx in enumerate(t0_indices)}
+
+        for train_idx, val_idx in skf.split(x_features, strata):
+            m1_fold = self.first_stage._new().fit(
+                x_features.iloc[train_idx][t_arr[train_idx] == 1],
+                y_arr[train_idx][t_arr[train_idx] == 1],
+            )
+            m0_fold = self.first_stage._new().fit(
+                x_features.iloc[train_idx][t_arr[train_idx] == 0],
+                y_arr[train_idx][t_arr[train_idx] == 0],
+            )
+
+            val_t = t_arr[val_idx]
+            val_y = y_arr[val_idx]
+            val_x = x_features.iloc[val_idx]
+
+            val_t1 = val_idx[val_t == 1]
+            val_t0 = val_idx[val_t == 0]
+
+            if len(val_t1) > 0:
+                p_m0 = m0_fold.predict_proba(val_x[val_t == 1])[:, 1]
+                for o_idx, p_val, y_val in zip(val_t1, p_m0, val_y[val_t == 1], strict=False):
+                    d1[t1_pos[o_idx]] = y_val - p_val
+
+            if len(val_t0) > 0:
+                p_m1 = m1_fold.predict_proba(val_x[val_t == 0])[:, 1]
+                for o_idx, p_val, y_val in zip(val_t0, p_m1, val_y[val_t == 0], strict=False):
+                    d0[t0_pos[o_idx]] = p_val - y_val
+
+        self.tau1 = _lgbm_regressor().fit(x_features.iloc[t1_indices], d1)
+        self.tau0 = _lgbm_regressor().fit(x_features.iloc[t0_indices], d0)
         return self
 
     def score(self, x: pd.DataFrame) -> np.ndarray:
         e = self.propensity
-        # Weight toward the estimate built from the larger arm's residuals.
+        # Künzel weighting: with e = 0.85, weight goes to tau0, which uses mu1 fit on the
+        # large treated arm (~85% of users), yielding a lower-variance CATE estimate.
         return np.asarray(
             e * self.tau0.predict(x[FEATURES]) + (1 - e) * self.tau1.predict(x[FEATURES])
         )
@@ -229,8 +303,17 @@ def strategies() -> list[Any]:
         ResponseModel(),
         TwoModel(name="two_model_logistic", base="logistic"),
         SLearner(),
+        SLearner(name="s_learner_lgbm_fullcol", model=_lgbm_classifier(colsample_bytree=1.0)),
         TwoModel(name="t_learner_lgbm"),
         XLearner(),
         TransformedOutcome(),
         CausalForest(),
     ]
+
+
+def get_strategy(name: str) -> Any:
+    """Return a fresh instance of the named strategy."""
+    for s in strategies():
+        if s.name == name:
+            return s
+    raise ValueError(f"Unknown uplift strategy: {name}")

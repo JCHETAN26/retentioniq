@@ -36,6 +36,15 @@ _LOG_FEATURES_PREFIXES = (
     "std_",
 )
 
+COMPLEXITY_ORDER = [
+    "M0_naive_recency",
+    "M1_logistic_rfm",
+    "M2_logistic_full",
+    "M3_random_forest",
+    "M4_lightgbm",
+    "M5_pytorch_mlp",
+]
+
 
 class ChurnModel(Protocol):
     name: str
@@ -210,10 +219,11 @@ class GradientBoosting:
 
 @dataclass
 class TorchMLP:
-    """M5: a small MLP. Kept only if it beats M4 per PROJECT_SPEC.md §5.5."""
+    """M5: a small MLP tuned over a 6-config grid. Kept only if it beats simpler models per §5.5."""
 
     features: list[str]
     name: str = "M5_pytorch_mlp"
+    max_epochs: int = 100
     params: dict[str, Any] = field(default_factory=dict)
     model_: Any = None
     scaler_: Any = None
@@ -228,48 +238,74 @@ class TorchMLP:
         import torch
         from torch import nn
 
-        torch.manual_seed(SEED)
+        torch.set_num_threads(1)
         self.scaler_ = StandardScaler().fit(self._prep(x))
         xt = torch.tensor(self.scaler_.transform(self._prep(x)), dtype=torch.float32)
         yt = torch.tensor(y, dtype=torch.float32)
         xv = torch.tensor(self.scaler_.transform(self._prep(x_val)), dtype=torch.float32)
 
-        best_score, best_state, patience = -np.inf, None, 0
-        model = nn.Sequential(
-            nn.Linear(xt.shape[1], 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(64, 1),
-        )
-        opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-        loss_fn = nn.BCEWithLogitsLoss()
-        gen = torch.Generator().manual_seed(SEED)
-        epochs = 0
-        for epoch in range(100):
-            model.train()
-            for idx in torch.randperm(len(xt), generator=gen).split(1024):
-                opt.zero_grad()
-                loss = loss_fn(model(xt[idx]).squeeze(1), yt[idx])
-                loss.backward()
-                opt.step()
-            model.eval()
-            with torch.no_grad():
-                pv = torch.sigmoid(model(xv).squeeze(1)).numpy()
-            score = average_precision_score(y_val, pv)
-            if score > best_score + 1e-4:
-                best_score, patience, epochs = score, 0, epoch + 1
-                best_state = {k: v.clone() for k, v in model.state_dict().items()}
-            else:
-                patience += 1
-                if patience >= 8:
-                    break
-        assert best_state is not None
-        model.load_state_dict(best_state)
-        self.model_ = model.eval()
-        self.params = {"hidden": [128, 64], "dropout": 0.2, "lr": 1e-3, "epochs": epochs}
+        configs: list[tuple[tuple[int, int], float]] = [
+            ((h1, h2), drop)
+            for (h1, h2) in ((64, 32), (128, 64), (256, 128))
+            for drop in (0.1, 0.3)
+        ]
+
+        best_overall_score = -np.inf
+        best_overall_state = None
+        best_overall_params: dict[str, Any] = {}
+        best_model: nn.Sequential | None = None
+
+        for (h1, h2), drop in configs:
+            torch.manual_seed(SEED)
+            model = nn.Sequential(
+                nn.Linear(xt.shape[1], h1),
+                nn.ReLU(),
+                nn.Dropout(drop),
+                nn.Linear(h1, h2),
+                nn.ReLU(),
+                nn.Dropout(drop),
+                nn.Linear(h2, 1),
+            )
+            opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+            loss_fn = nn.BCEWithLogitsLoss()
+            gen = torch.Generator().manual_seed(SEED)
+            best_score, best_state, patience, epochs = -np.inf, None, 0, 0
+
+            for epoch in range(self.max_epochs):
+                model.train()
+                for idx in torch.randperm(len(xt), generator=gen).split(1024):
+                    opt.zero_grad()
+                    loss = loss_fn(model(xt[idx]).squeeze(1), yt[idx])
+                    loss.backward()
+                    opt.step()
+                model.eval()
+                with torch.no_grad():
+                    pv = torch.sigmoid(model(xv).squeeze(1)).numpy()
+                score = average_precision_score(y_val, pv)
+                if score > best_score + 1e-4:
+                    best_score, patience, epochs = score, 0, epoch + 1
+                    best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                else:
+                    patience += 1
+                    if patience >= 8:
+                        break
+
+            if best_score > best_overall_score and best_state is not None:
+                best_overall_score = best_score
+                best_overall_state = best_state
+                best_overall_params = {
+                    "hidden": [h1, h2],
+                    "dropout": drop,
+                    "lr": 1e-3,
+                    "weight_decay": 1e-4,
+                    "epochs": epochs,
+                }
+                best_model = model
+
+        assert best_overall_state is not None and best_model is not None
+        best_model.load_state_dict(best_overall_state)
+        self.model_ = best_model.eval()
+        self.params = best_overall_params
         return self
 
     def predict_proba(self, x: pd.DataFrame) -> np.ndarray:

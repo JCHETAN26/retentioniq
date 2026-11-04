@@ -18,6 +18,7 @@ dependencies = [
     "openpyxl>=3.1",
     "pyyaml>=6",
     "typer>=0.12",
+    "lifetimes>=0.11.3",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +60,8 @@ dev = [
     "pandas-stubs>=2.2",
     "types-PyYAML>=6",
     "pre-commit>=3.7",
+    "nbconvert>=7.17.2",
+    "ipykernel>=7.4.0",
 ]
 
 [build-system]
@@ -72,6 +75,7 @@ packages = ["src/retentioniq"]
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "PTH", "RUF", "PD", "NPY"]
@@ -89,7 +93,7 @@ mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["lightgbm.*", "xgboost.*", "lifelines.*", "shap.*", "mlflow.*", "sklearn.*", "joblib.*",
+module = ["lightgbm.*", "xgboost.*", "lifelines.*", "lifetimes.*", "shap.*", "mlflow.*", "sklearn.*", "joblib.*",
           "torch.*", "scipy.*", "evidently.*", "umap.*", "econml.*"]
 ignore_missing_imports = true
 follow_untyped_imports = false

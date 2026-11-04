@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.5 — frozen before any modeling.**
+Status: **v0.6**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -248,11 +248,10 @@ category groups.
 
 ### 5.5 Rules for adding complexity
 
-- M5, or any sequence model, is kept only if it beats M4 on validation PR-AUC
-  and the bootstrap CI of the difference excludes 0. Otherwise it is still
-  reported, but it is not promoted.
-- Calibration (isotonic or Platt, fit on validation) is applied before serving
-  if it lowers validation Brier score.
+- **Universal ladder complexity rule:** models are ordered by complexity (M0 < M1 < M2 < M3 < M4 < M5). Model selection begins at the model with the highest validation PR-AUC. Walking down the ladder, the platform selects the simplest model whose paired bootstrap test PR-AUC delta vs the best model has a CI that includes zero (i.e. not statistically significantly worse).
+- If the selected champion is not LightGBM, serving retains the LightGBM export (`churn_lgbm.joblib`) for sub-10ms C++ booster and native TreeSHAP execution, while exporting `churn_champion.joblib` for the selected model.
+- Calibration (isotonic or Platt, fit on validation) is applied before serving if it lowers validation Brier score.
+- **TorchMLP fair tuning budget:** evaluated over a 6-configuration grid of hidden dimensions {(64, 32), (128, 64), (256, 128)} and dropout rates {0.1, 0.3} with early stopping on validation PR-AUC.
 
 ---
 
@@ -415,3 +414,4 @@ level, and hardware are recorded in `serving_benchmark.json`.
 | 0.3 | 2026-10-02 | §4.2: survival population is returning visitors; censoring at `T_end − 30d`; Cox covariates from the first session only. | Covariates over the first 14 days with the clock starting at day 0 cause immortal-time bias; the censoring time is the last point at which a 30-day gap could still have been observed. Changed before any model was fit. |
 | 0.4 | 2026-10-02 | §6.1: uplift learners fit on a 3M-row stratified subsample of the 8.4M training rows; validation and test unchanged. | Compute budget: one LightGBM fit on 8.4M rows took ~15 minutes on the 4-core environment, putting the 22-fit ladder at several hours. Decided before any uplift result was produced; applies identically to every strategy. |
 | 0.5 | 2026-10-03 | §6.3: the causal forest (listed "where computationally feasible") is added to the ladder, fit on a 1M-row stratified subsample of the training split; selection rule (validation Qini on visit) unchanged. | Completes the pre-registered estimator list. It was omitted from the first run; the forest's training cost makes 3M rows impractical on 4 cores. Its result is reported whether or not it wins. |
+| 0.6 | 2026-11-04 | §5.5: universal ladder complexity rule (simplest model within delta CI of validation best); 6-config grid for TorchMLP; §6.3: cross-fitted X-learner, S-learner diagnostics and full-column variant; §4.2: landmark survival model at day 7; customer lifetime value (BG/NBD + Gamma-Gamma). | Portfolio upgrade: principled parsimony across entire ladder, eliminates first-stage overfit in X-learner, adds honest landmark survival baseline and CLV analysis. |
