@@ -317,9 +317,12 @@ def run(database_url: str, artifacts: Path, model_dir: Path) -> dict[str, Any]:
             "concordance_single_covariate": single_c_index,
             "concordance_random_baseline": 0.50,
             "interpretation": (
-                f"Held-out concordance of {c_index:.3f} is close to random baseline (0.50), "
-                f"demonstrating that first-session engagement alone does not reliably predict "
-                f"long-term return timing without post-session behavioral history."
+                f"Held-out concordance of {c_index:.3f} vs a random baseline of 0.50: "
+                + (
+                    "first-session engagement alone ranks return timing little better than chance."
+                    if c_index < 0.55
+                    else "first-session engagement carries some ranking signal."
+                )
             ),
             "strata": strata,
             "ph_violations_p_lt_0.01": violating,
@@ -429,8 +432,12 @@ def run(database_url: str, artifacts: Path, model_dir: Path) -> dict[str, Any]:
             "interpretation": (
                 f"Evaluating visitors at a day-{LANDMARK_DAYS} landmark yields test concordance "
                 f"of {lm_c_index:.3f} vs {c_index:.3f} for first-session engagement (delta "
-                f"+{delta_c:.3f}). 7-day behavioral history (session frequency, catalog "
-                f"exploration, active days) provides stronger predictive signal."
+                f"{delta_c:+.3f}; the two models are evaluated on different populations). "
+                + (
+                    "7-day behavioral history ranks return timing better."
+                    if delta_c > 0
+                    else "7-day behavioral history does not improve ranking."
+                )
             ),
         }
         (artifacts / "survival_landmark_summary.json").write_text(

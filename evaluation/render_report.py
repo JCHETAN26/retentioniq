@@ -164,17 +164,17 @@ def churn() -> list[str]:
 
     sel = _json("churn_selection.json")
     if sel is not None:
+        # Keys as written by training/churn.py (`selection_reasoning`).
+        d = sel["delta_vs_best"]
         out += [
             "",
             "### Model selection rationale",
-            f"- **Best validation model**: `{sel.get('best_validation_model')}`",
-            f"- **Selected champion**: `{sel.get('selected_champion')}`",
-            f"- **Delta vs best**: {sel.get('delta_pr_auc_vs_best', 0.0):.4f} "
-            f"(95% CI: [{sel.get('ci_low', 0.0):.4f}, {sel.get('ci_high', 0.0):.4f}])",
-            f"- **Rationale**: {sel.get('rationale', '')}",
+            f"- **Best validation model**: `{sel['best_by_validation']}`",
+            f"- **Selected champion**: `{sel['selected_champion']}`",
+            f"- **Delta vs best**: {d['delta_pr_auc']:.4f} "
+            f"(95% CI: [{d['ci_low']:.4f}, {d['ci_high']:.4f}])",
+            f"- **Rationale**: {sel['reasoning']}",
         ]
-        if sel.get("serving_model_note"):
-            out += [f"- **Serving deployment**: {sel.get('serving_model_note')}"]
 
     deltas = _csv("churn_pairwise_deltas.csv")
     if deltas is not None:
@@ -686,147 +686,186 @@ def generate_figures() -> None:
             plt.close(fig)
 
 
-def generate_findings() -> None:
-    """Write non-technical executive summary docs/FINDINGS.md for Growth/Marketing leaders."""
-    out_path = ROOT / "docs" / "FINDINGS.md"
+def _missing(artifact: str) -> str:
+    return f"_Not available: `artifacts/{artifact}` was not produced by this run._"
 
+
+def _fig_links(*figs: tuple[str, str]) -> list[str]:
+    """Markdown links for figures that actually exist on disk."""
+    links = [f"[{label}](figures/{name})" for label, name in figs if (FIG / name).exists()]
+    return [f"_Figures: {' | '.join(links)}_", ""] if links else []
+
+
+def _findings_churn() -> list[str]:
     cmp = _csv("churn_model_comparison.csv")
-    champ_prauc = "0.91+"
-    if cmp is not None and "pr_auc" in cmp.columns:
-        champ_row = cmp[cmp.get("is_champion", False) == True]  # noqa: E712
-        if not champ_row.empty:
-            champ_prauc = f"{champ_row['pr_auc'].iloc[0]:.3f}"
+    if cmp is None or "is_champion" not in cmp.columns:
+        return [_missing("churn_model_comparison.csv"), ""]
+    man = _json("split_manifest.json") or {}
+    champ = cmp[cmp["is_champion"].astype(bool)].iloc[0]
+    out: list[str] = []
+    test_base = (man.get("base_rate") or {}).get("test")
+    if test_base is not None:
+        out.append(
+            f"- **Base rate:** {_pct(test_base)} of test-snapshot visitors were inactive in the"
+            f" prediction window, so PR-AUC on the inactive class starts at ~{test_base:.3f}"
+            " for a random score. The minority who return are the commercially relevant group."
+        )
+    line = (
+        f"- **Champion:** `{champ['model']}` with test PR-AUC {champ['pr_auc']:.4f}"
+        f" (95% CI [{champ['pr_auc_ci_low']:.4f}, {champ['pr_auc_ci_high']:.4f}])"
+    )
+    m0 = cmp[cmp["model"] == "M0_naive_recency"]
+    if not m0.empty:
+        line += f", vs {m0['pr_auc'].iloc[0]:.4f} for the naive recency baseline"
+    out.append(line + ".")
+    if "lift_returners@10" in cmp.columns:
+        out.append(
+            f"- **Returner view:** among the top 10% scored as most likely to return, the"
+            f" champion's lift over the returner base rate is {champ['lift_returners@10']:.2f}x."
+        )
+    sel = _json("churn_selection.json")
+    if sel is not None:
+        out.append(f"- **Selection rule:** {sel['reasoning']}")
+    thr = _csv("churn_threshold_scenarios.csv")
+    if thr is not None:
+        best = thr.loc[thr["expected_profit"].idxmax()]
+        out.append(
+            f"- **Operating threshold (SCENARIO, hypothetical economics):** across"
+            f" {len(thr)} cost/value scenarios the cost-optimal threshold ranges"
+            f" {thr['threshold'].min():.3f}-{thr['threshold'].max():.3f}; the most profitable"
+            f" scenario contacts {_pct(best['share_contacted'])} of visitors."
+        )
+    shap = _csv("shap_global.csv")
+    if shap is not None:
+        top = ", ".join(f"`{f}`" for f in shap.head(3)["feature"])
+        out.append(f"- **Top drivers (mean |SHAP|):** {top}.")
+    out.append("")
+    out += _fig_links(
+        ("PR-AUC Ladder", "churn_ladder_pr_auc.png"),
+        ("SHAP Feature Importance", "churn_shap_importance.png"),
+    )
+    return out
 
-    surv_s = _json("survival_summary.json")
-    lm_s = _json("survival_landmark_summary.json")
-    c_day1 = f"{surv_s['cox']['concordance_test']:.2f}" if surv_s and "cox" in surv_s else "0.53"
-    c_lm = f"{lm_s['concordance_test']:.2f}" if lm_s and "concordance_test" in lm_s else "0.70+"
 
+def _findings_survival() -> list[str]:
+    s = _json("survival_summary.json")
+    lm = _json("survival_landmark_summary.json")
+    out: list[str] = []
+    c1 = (s or {}).get("cox", {}).get("concordance_test")
+    if c1 is None:
+        out.append(_missing("survival_summary.json"))
+    else:
+        out.append(
+            f"- **First-session model:** held-out concordance {c1:.3f} (0.50 = random ranking)."
+        )
+    if lm is None or lm.get("concordance_test") is None:
+        out.append(_missing("survival_landmark_summary.json"))
+    else:
+        c_lm, delta = lm["concordance_test"], lm["concordance_delta"]
+        direction = "higher" if delta > 0 else "not higher"
+        out.append(
+            f"- **Day-{lm['landmark_days']} landmark model:** held-out concordance {c_lm:.3f},"
+            f" {direction} than first-session ({delta:+.3f}), on {lm['population']:,} visitors"
+            " still observable at the landmark (a different population, so this is not a"
+            " like-for-like comparison)."
+        )
+        p = lm.get("logrank_activity_tier", {}).get("p_value")
+        if p is not None:
+            out.append(f"- **Week-1 activity tiers:** log-rank p = {p:.2e}.")
+    out.append("")
+    out += _fig_links(("Day-7 Landmark Retention Curves", "survival_landmark_km.png"))
+    return out
+
+
+def _findings_uplift() -> list[str]:
     exp = _json("experiment_results.json")
-    champ_strat = exp.get("selected_strategy", "X-Learner") if exp else "X-Learner"
+    res = _csv("uplift_results.csv")
+    if not exp or res is None:
+        return [_missing("experiment_results.json / uplift_results.csv"), ""]
+    best = exp["selected_strategy"]
+    visit = exp["outcomes"].get("visit")
+    out: list[str] = []
+    if visit:
+        out.append(
+            f"- **Average effect (randomized, N = {exp['n']:,}):** treatment raised the visit"
+            f" rate by {100 * visit['ate']:.3f} pp ({_pct(visit['relative_lift'])} relative)."
+        )
+    test = res[(res["split"] == "test") & (res["outcome"] == "visit")].set_index("strategy")
+    if best in test.index and "response_model" in test.index:
+        q_best = test.loc[best, "qini_coefficient"]
+        q_resp = test.loc["response_model", "qini_coefficient"]
+        verdict = "beats" if q_best > q_resp else "does not beat"
+        out.append(
+            f"- **Uplift vs propensity:** the strategy selected on validation Qini, `{best}`,"
+            f" {verdict} the response (propensity) model on test Qini for visits"
+            f" ({q_best:.4f} vs {q_resp:.4f})."
+        )
+    calib = _csv("uplift_calibration_deciles.csv")
+    if calib is not None and visit:
+        top = calib[
+            (calib["strategy"] == best) & (calib["outcome"] == "visit") & (calib["decile"] == 10)
+        ]
+        if not top.empty:
+            ratio = top["observed_uplift"].iloc[0] / visit["ate"]
+            out.append(
+                f"- **Top decile:** observed visit uplift in `{best}`'s top score decile is"
+                f" {ratio:.1f}x the population average effect."
+            )
+    opt = _csv("campaign_optimal_reach.csv")
+    if opt is not None:
+        row = opt[(opt["strategy"] == best) & opt["is_optimal"].astype(bool)]
+        if not row.empty:
+            out.append(
+                f"- **Reach (SCENARIO, hypothetical economics):** under the assumed cost and"
+                f" conversion value, `{best}` net value peaks at"
+                f" {_pct(row['reach'].iloc[0], 0)} reach."
+            )
+    out.append("")
+    out += _fig_links(
+        ("Qini Curves", "uplift_qini_curves.png"),
+        ("Decile Uplift Calibration", "uplift_calibration_deciles.png"),
+        ("Campaign Net Value vs Reach", "campaign_net_value_by_reach.png"),
+    )
+    return out
 
+
+def generate_findings() -> None:
+    """Write the executive summary docs/FINDINGS.md.
+
+    Every number and every directional claim ("beats", "higher") is computed from artifacts.
+    A missing artifact renders as "not available"; nothing falls back to a typed-in value.
+    """
+    out_path = ROOT / "docs" / "FINDINGS.md"
     lines = [
-        "# RetentionIQ - Executive Findings & Business Insights",
+        "# RetentionIQ - Executive Findings",
         "",
-        "_Generated by `evaluation/render_report.py`. Written for VP Growth / CMO._",
+        "_Generated by `evaluation/render_report.py` from `artifacts/`. Do not edit by hand._",
+        "_Full tables and confidence intervals: [RESULTS.md](RESULTS.md)._",
         "",
-        "## Executive Summary",
-        (
-            "RetentionIQ unifies customer behavioral segmentation, CLV modeling,"
-            " inactivity prediction, survival analysis, and causal uplift targeting into a"
-            " coherent decision system. Rather than relying on static heuristic rules (such as"
-            " arbitrary 30-day churn windows or mass untargeted promotions), RetentionIQ isolates"
-            " incremental business impact and optimizes intervention budgets."
-        ),
-        "",
-        "---",
-        "",
-        "### Case Study 1: Customer Inactivity & Decision-Threshold Economics",
-        "**The Problem with Heuristic Rules:**",
-        (
-            "Traditional CRM workflows define customer churn using a fixed 30-day inactivity"
-            " window. However, on e-commerce platforms like RetailRocket, ~87% of visitors"
-            " naturally do not return. High PR-AUC scores on this majority class give a false"
-            " sense of security: even a naive baseline predicting 'everyone leaves' scores"
-            " ~0.87. The real commercial opportunity lies in identifying the 13% minority"
-            " who will actually return."
-        ),
-        "",
-        "**Model Insights & Cost-Optimal Action:**",
-        (
-            f"- **Predictive Power:** Our champion gradient-boosted tree achieves a PR-AUC of"
-            f" {champ_prauc}, outperforming recency heuristics and logistic baselines."
-        ),
-        (
-            "- **Returner View:** Evaluating specifically on minority returners confirms top-decile"
-            " lift of >2.5x over random outreach."
-        ),
-        (
-            "- **Unit-Economics Threshold:** Rather than cutting at an arbitrary 50% probability,"
-            " our cost-optimal operating threshold balances contact cost against retained gross"
-            " margin, preventing negative-ROI promotional spam."
-        ),
-        "- **Key Takeaways:**",
-        "  1. Base rates matter: always benchmark retention against minority returners (13% base).",
-        "  2. Choose thresholds based on campaign unit economics, not default probability cutoffs.",
-        "  3. Catalog breadth and session count in the prior 14 days are the dominant predictors.",
-        "",
-        (
-            "_Figures: [PR-AUC Ladder](figures/churn_ladder_pr_auc.png) | "
-            "[SHAP Feature Importance](figures/churn_shap_importance.png)_"
-        ),
-        "",
-        "---",
-        "",
-        "### Case Study 2: First-Week Engagement & Day-7 Landmark Retention",
-        "**The First-Session Illusion:**",
-        (
-            "Growth teams often attempt to predict long-term loyalty from a visitor's very first"
-            f" visit. Our survival analysis proves that first-session engagement yields concordance"
-            f" of {c_day1} - barely superior to a coin flip (0.50). First-session engagement alone"
-            " cannot reliably predict long-term return timing without behavioral history."
-        ),
-        "",
-        "**The Day-7 Landmark Breakthrough:**",
-        (
-            f"- **Behavioral History:** Shifting to a day-7 landmark analysis raises predictive"
-            f" concordance to {c_lm}. Accumulating one week of behavioral history provides the"
-            " necessary signal for accurate retention forecasting."
-        ),
-        (
-            "- **Distinct Activity Tiers:** Kaplan-Meier survival curves reveal sharp,"
-            " statistically significant separations between visitors logging 1 session vs"
-            " 2-3 sessions vs 4+ sessions in week 1."
-        ),
-        "- **Key Takeaways:**",
-        "  1. Do not score long-term churn risk on day 1: early behavioral noise dominates signal.",
-        "  2. Use first 7 days as an onboarding landmark to assign visitors into lifecycle tiers.",
-        "  3. Prioritize multi-session re-engagement in week 1 over driving single long sessions.",
-        "",
-        "_Figure: [Day-7 Landmark Retention Curves](figures/survival_landmark_km.png)_",
-        "",
-        "---",
-        "",
-        "### Case Study 3: Ad Campaign Targeting & Incremental Uplift",
-        "**The 'Likely Converter' Trap:**",
-        (
-            "Marketing budgets are frequently squandered by targeting users with high response"
-            " propensity. In randomized trials, this wastes ad spend on 'always-takers' who"
-            " would have purchased regardless of whether an ad was shown."
-        ),
-        "",
-        "**Causal Machine Learning (CATE):**",
-        (
-            f"- **Incremental Targeting:** Uplift models (champion: `{champ_strat}`) isolate"
-            " true incrementality. Decile calibration proves high-scoring users deliver 3x"
-            " higher incremental lift than baseline converters."
-        ),
-        (
-            "- **Profit-Optimal Reach:** Fine reach simulation demonstrates campaign net value"
-            " peaks at a specific penetration threshold before diminishing returns turn"
-            " marginal conversions unprofitable."
-        ),
-        "- **Key Takeaways:**",
-        "  1. Target for incrementality, not conversion: stop subsidizing natural buyers.",
-        "  2. Single-model learners must be audited for feature regularization towards zero.",
-        "  3. Cap campaign reach at profit-optimal threshold to maximize net contribution.",
-        "",
-        (
-            "_Figures: [Qini Curves](figures/uplift_qini_curves.png) | "
-            "[Decile Uplift Calibration](figures/uplift_calibration_deciles.png) | "
-            "[Campaign Net Value vs Reach](figures/campaign_net_value_by_reach.png)_"
-        ),
-        "",
+        "## 1. Inactivity prediction (RetailRocket)",
+        *_findings_churn(),
+        "## 2. Time to inactivity: first session vs day-7 landmark (RetailRocket)",
+        *_findings_survival(),
+        "## 3. Uplift targeting (Criteo randomized trial)",
+        *_findings_uplift(),
     ]
-    out_path.write_text("\n".join(lines) + "\n")
+    out_path.write_text("\n".join(lines).rstrip() + "\n")
     print(f"wrote {out_path}")
 
 
 def main() -> None:
+    import sys
+
+    manifest = _json("manifest.json")
+    if not manifest or not manifest.get("stages"):
+        # Refuse rather than overwrite the committed reports with empty stubs.
+        sys.exit(
+            "render_report: artifacts/manifest.json is missing or empty - run `make evaluate` "
+            "first. docs/RESULTS.md and docs/FINDINGS.md were left unchanged."
+        )
     generate_figures()
 
-    manifest = _json("manifest.json") or {}
-    stages = manifest.get("stages", {}).values()
+    stages = manifest["stages"].values()
     shas = {v.get("git_sha", "")[:8] for v in stages}
     specs = {v.get("spec_version") for v in stages}
     lines = [
