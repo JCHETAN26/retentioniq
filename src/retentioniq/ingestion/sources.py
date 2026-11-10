@@ -105,7 +105,9 @@ ONLINE_RETAIL = Dataset(
 
 CRITEO_UPLIFT = Dataset(
     name="criteo-uplift",
-    url="http://go.criteo.net/criteo-research-uplift-v2.1.csv.gz",
+    # The original go.criteo.net link returns 404 (checked 2026-11-10); this is Criteo's own,
+    # ungated Hugging Face copy of the same v2.1 file (311,422,618 bytes).
+    url="https://huggingface.co/datasets/criteo/criteo-uplift/resolve/main/criteo-research-uplift-v2.1.csv.gz",
     archive=None,
     files=(
         SourceFile(
