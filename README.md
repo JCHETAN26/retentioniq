@@ -1,6 +1,10 @@
 # RetentionIQ
 
-RetentionIQ is an end-to-end, production-grade retention decision platform built on three public e-commerce and marketing datasets ([UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii), [RetailRocket](https://www.kaggle.com/datasets/retailrocket/ecommerce-dataset), and [Criteo Uplift v2.1](https://ailab.criteo.com/criteo-uplift-prediction-dataset/)). Rather than relying on static 30-day heuristics or naive response models, RetentionIQ isolates incremental causal impact and optimizes intervention unit economics. It is built to test three core claims: (1) **causal uplift targeting outperforms propensity targeting** by preventing wasted spend on natural converters ("always-takers"); (2) **first-week behavioral accumulation outperforms first-session engagement** in survival modeling, resolving the day-1 information deficit through a day-7 landmark; and (3) **unit-economics thresholding outperforms arbitrary 0.50 probability cutoffs**, maximizing net campaign margin under real contact costs.
+RetentionIQ is an end-to-end, production-grade retention decision platform built on three public e-commerce and marketing datasets ([UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii), [RetailRocket](https://www.kaggle.com/datasets/retailrocket/ecommerce-dataset), and [Criteo Uplift v2.1](https://ailab.criteo.com/criteo-uplift-prediction-dataset/)). Rather than relying on static 30-day heuristics or naive response models, RetentionIQ isolates incremental causal impact and optimizes intervention unit economics. It was built to test three claims. The spec v0.6 run (2026-11-10) gives a mixed answer, reported as-is per the spec's guiding principle:
+
+1. **Uplift targeting beats propensity targeting.** *Partly.* On visits, the selected S-learner has a higher test Qini than the response model, but the paired bootstrap difference is not significant (p = 0.096). On conversions, and on profit under the scenario economics, propensity targeting does better.
+2. **A day-7 landmark beats first-session survival modeling.** *Not supported.* Held-out concordance is 0.506 vs 0.507. Week-1 activity tiers do separate (log-rank p ≈ 1e-75), but too weakly to rank visitors.
+3. **Unit-economics thresholds beat a fixed 0.50 cutoff.** The cost-optimal threshold ranges 0.13–0.67 across 9 cost/value scenarios. The economics are hypothetical, so this shows the method, not a measured gain.
 
 Every definition, split, and gate is specified in [`PROJECT_SPEC.md`](PROJECT_SPEC.md) (v0.6). Full numerical benchmarks are rendered from pipeline outputs in [`docs/RESULTS.md`](docs/RESULTS.md), executive growth summaries are in [`docs/FINDINGS.md`](docs/FINDINGS.md), and analytical SQL showcases are cataloged in [`sql/README.md`](sql/README.md).
 
@@ -30,32 +34,38 @@ The three standalone notebooks in `notebooks/` run top-to-bottom without requiri
 
 ## 2. Key Findings & Empirical Visualizations
 
-> **Results status (2026-11-10).** The v0.6 code (parsimony rule, cross-fitted X-learner, day-7
-> landmark survival, CLV) is implemented and unit-tested, but **has not yet been run on the real
-> datasets**, so `artifacts/` is empty and the v0.6 figures do not exist yet. The numbers below are
-> from the **last verified full run (spec v0.5, git `bcce5ce`)**; read that report with
-> `git show 1a8b06b:docs/RESULTS.md`. Claims marked *pending* need `make reproduce`. After a run,
-> `make report` regenerates [`docs/RESULTS.md`](docs/RESULTS.md),
-> [`docs/FINDINGS.md`](docs/FINDINGS.md) and `docs/figures/` strictly from `artifacts/`.
+All numbers and figures below come from the full run under **spec v0.6 (git `20f499a`, 2026-11-10, 4-core Codespace)**. Full tables with confidence intervals: [`docs/RESULTS.md`](docs/RESULTS.md); executive summary: [`docs/FINDINGS.md`](docs/FINDINGS.md). Both are generated from `artifacts/` by `make report`.
 
-### A. Inactivity Prediction: Minority Returners & Decision Economics
-In the v0.5 test snapshot, 87.4% of RetailRocket visitors did not return within the 30-day prediction window, so PR-AUC on the inactive class starts near 0.87 for a random score. RetentionIQ benchmarks the full model ladder (M0 naive recency to M5 MLP) on overall PR-AUC and on the minority who return, and v0.6 applies a parsimony rule (pick the simplest model statistically tied with the best).
+### A. Inactivity Prediction (RetailRocket)
+87.4% of test-snapshot visitors did not return within the 30-day prediction window, so PR-AUC on the inactive class starts near 0.874 for a random score.
 
-- **Ladder (v0.5):** LightGBM M4 test PR-AUC 0.952 [0.949, 0.955] vs 0.930 for naive recency. M2 logistic, M3 random forest and M5 MLP were within ~0.003 of M4, so the v0.6 parsimony rule may select a simpler champion (*pending*).
-- **Drivers (v0.5, mean |SHAP|):** `recency_vs_typical_gap`, `recency_days` and `tenure_days`; the temporal feature family gave the largest ablation gain (+0.008 PR-AUC).
-- **Operating threshold:** chosen from contact cost vs value of a retained visitor instead of a fixed 0.50 cutoff. The economics are a labeled *hypothetical scenario*, not observed data.
+| Model Ladder PR-AUC | Top Feature Drivers (TreeSHAP) |
+| :---: | :---: |
+| ![Model Ladder PR-AUC](docs/figures/churn_ladder_pr_auc.png) | ![SHAP Feature Importance](docs/figures/churn_shap_importance.png) |
+
+- **Champion:** LightGBM M4, test PR-AUC **0.9521** [0.9493, 0.9550] vs 0.9300 for naive recency. The v0.6 parsimony rule found no simpler model statistically tied with it. M5 (MLP, 6-config grid) reached 0.9514.
+- **Returners:** among the top 10% scored most likely to return, lift over the returner base rate is 3.51x.
+- **Drivers:** `recency_vs_typical_gap`, `recency_days`, `tenure_days`.
+- **Promotion:** M4 passed all 5 gates in spec §9.1 against the M1 reference and is registered in MLflow.
 
 ### B. Time to Inactivity: First Session vs Day-7 Landmark
-- **First session (v0.5):** a Cox model on first-session covariates reached held-out concordance of **0.507**, essentially random (0.50).
-- **Day-7 landmark (v0.6, *pending*):** tests whether one week of accumulated behavior (sessions, active days, catalog breadth) ranks return timing better, with Kaplan-Meier curves and a log-rank test across week-1 activity tiers. No result has been produced yet.
+| Day-7 Landmark Kaplan-Meier Survival Curves |
+| :---: |
+| ![Day-7 Landmark Retention Curves](docs/figures/survival_landmark_km.png) |
 
-### C. Treatment Intelligence: Causal Uplift vs Propensity Targeting
-Targeting the users most likely to convert spends budget on people who would have converted anyway. Criteo's 14M-row randomized trial lets us measure incremental effect directly.
+- **First session:** held-out Cox concordance **0.507**, essentially random.
+- **Day-7 landmark:** **0.506**, no improvement (on a different population of 43,860 visitors still observable at day 7). Each week-1 feature on its own ranks at 0.499–0.510.
+- **Tiers:** mean time to inactivity is 11.8 / 13.2 / 16.6 days for 1 / 2–3 / 4+ week-1 sessions (log-rank p ≈ 1e-75). The difference is real but small, and 70% of visitors fall in the 1-session tier.
 
-- **Average effect (v0.5):** treatment raised visits by +1.03 pp (+27% relative) and conversions by +0.115 pp (+59%); covariate balance max |SMD| 0.049.
-- **Uplift vs propensity (v0.5):** the strategy selected on validation Qini, an S-learner (LightGBM), beat the response model on test Qini for visits (0.092 vs 0.087). Not every uplift learner did: the X-learner (0.085) and T-learner (0.077) scored below the response model. v0.6 cross-fits the X-learner (*pending*).
-- **Reach (v0.5):** at 1% reach the S-learner produced ~2.9x the incremental *visits* of the response model, but not more incremental *conversions* (1,050 vs 1,169, overlapping CIs).
-- **Profit-optimal reach:** computed under hypothetical cost/value assumptions (*scenario*, *pending* for v0.6).
+### C. Treatment Intelligence: Uplift vs Propensity (Criteo, N = 13,979,592)
+| Qini Curves (Visit) | Decile Calibration (Visit) | Campaign Net Value vs Reach |
+| :---: | :---: | :---: |
+| ![Qini Curves](docs/figures/uplift_qini_curves.png) | ![Decile Calibration](docs/figures/uplift_calibration_deciles.png) | ![Campaign Net Value vs Reach](docs/figures/campaign_net_value_by_reach.png) |
+
+- **Average effect:** treatment raised visits by +1.03 pp (+27%) and conversions by +0.115 pp (+59%). The arms are balanced (max |SMD| 0.049).
+- **Visits:** the S-learner (selected on validation Qini) scored test Qini 0.0958 vs 0.0864 for the response model, but the bootstrap difference is not significant (p = 0.096). The causal forest (0.0911) is the only strategy significantly above the response model (p = 0.004). The cross-fitted X-learner (0.0834) and T-learner (0.0733) score below it.
+- **Conversions:** the response model has the best test Qini (0.1921). No uplift learner beats it.
+- **Profit (SCENARIO: $0.01 per impression, $10 per conversion):** net value peaks at 22% reach for the response model ($22.9k) and at 19% for the S-learner ($21.1k).
 
 ---
 
@@ -109,9 +119,9 @@ The three datasets represent distinct e-commerce and marketing domains and are m
 
 | Case Study | Dataset | Core Business Problem | Methods & Models | Key Outcomes |
 | :--- | :--- | :--- | :--- | :--- |
-| **Customer Intelligence** | [UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii) | Revenue concentration, customer lifetime value, and cohort retention | Behavioral RFM, K-Means clustering, BG/NBD & Gamma-Gamma CLV | Top 10% customers generate vast majority of revenue; BG/NBD forecasts 90-day repeat orders with low MAE |
-| **Inactivity & Survival** | [RetailRocket](https://www.kaggle.com/datasets/retailrocket/ecommerce-dataset) | Clickstream engagement, churn prediction, and time-to-inactivity | Model ladder (M0–M5), TreeSHAP, Day-7 Landmark Cox PH, Kaplan-Meier | v0.5: first-session Cox concordance 0.507 (near random); day-7 landmark result pending |
-| **Treatment Intelligence** | [Criteo Uplift v2.1](https://ailab.criteo.com/criteo-uplift-prediction-dataset/) | Ad retargeting efficiency and incremental conversion optimization | RCT balance checks, Two-Model, 2-fold cross-fitted X-Learner, Qini curves | v0.5: selected S-learner beats propensity on test Qini (0.092 vs 0.087); X/T-learners do not; reach economics are a hypothetical scenario |
+| **Customer Intelligence** | [UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii) | Revenue concentration, customer lifetime value, and cohort retention | Behavioral RFM, K-Means clustering, BG/NBD & Gamma-Gamma CLV | Top 10% of customers generate 63.8% of revenue (Gini 0.74); BG/NBD 90-day purchase MAE 0.689 vs 0.701 naive (1.6% better). Known bug: Gamma-Gamma spend predictions are NaN/negative for some customers |
+| **Inactivity & Survival** | [RetailRocket](https://www.kaggle.com/datasets/retailrocket/ecommerce-dataset) | Clickstream engagement, churn prediction, and time-to-inactivity | Model ladder (M0–M5), TreeSHAP, Day-7 Landmark Cox PH, Kaplan-Meier | First-session Cox concordance 0.507 (near random); the day-7 landmark does not improve it (0.506) |
+| **Treatment Intelligence** | [Criteo Uplift v2.1](https://ailab.criteo.com/criteo-uplift-prediction-dataset/) | Ad retargeting efficiency and incremental conversion optimization | RCT balance checks, Two-Model, 2-fold cross-fitted X-Learner, Qini curves | Visits: S-learner above propensity on test Qini (0.096 vs 0.086, not significant); conversions and scenario profit: propensity is better |
 
 ---
 
@@ -124,7 +134,7 @@ The three datasets represent distinct e-commerce and marketing domains and are m
 - **Anti-Hallucination Policy:** `docs/RESULTS.md`, `docs/FINDINGS.md` and `docs/figures/` are generated only from `artifacts/` by `evaluation/render_report.py`, which has no fallback values and refuses to run when `artifacts/` is empty. Numbers quoted in this README name the run (spec version, git SHA) they come from.
 - **Low-Latency Production Serving:**
   - FastAPI serving layer (`src/retentioniq/serving/app.py`) serves `/v1/churn/predict`, `/v1/churn/batch` and `/v1/uplift/score`.
-  - LightGBM booster fast path. v0.5 benchmark (4 CPU, local): single-record p99 2.7 ms at concurrency 1 and 50 ms at concurrency 8, within the spec §9.2 SLOs.
+  - LightGBM booster fast path. v0.6 benchmark (4 CPU): 668 req/s, single-record p99 2.9 ms at concurrency 1 and 38 ms at concurrency 8; all spec §9.2 SLOs met.
   - Exact native TreeSHAP attribution is computed dynamically for top risk drivers.
   - Exposes Prometheus `/metrics` for latency, throughput, and error rates.
 - **Code Quality & Typing:**
@@ -137,7 +147,7 @@ The three datasets represent distinct e-commerce and marketing domains and are m
 ## 6. Honest Systems Trade-offs & Limitations
 
 1. **S-Learner Feature Regularization:** Single-model S-learners on high-dimensional feature spaces (such as Criteo) frequently regularize the binary treatment indicator toward zero split count and gain. RetentionIQ includes automated S-learner diagnostics (`artifacts/uplift_s_learner_diagnostics.json`) and provides `s_learner_lgbm_fullcol` (`colsample_bytree=1.0`) to force treatment split consideration.
-2. **First-Session Survival Predictability:** First-session browsing engagement (minutes, pageviews, categories) had a held-out concordance index of 0.507 in the v0.5 run. RetentionIQ explicitly documents that first-session engagement alone is inadequate for long-term customer retention without post-session behavioral accumulation.
+2. **First-Session Survival Predictability:** First-session browsing engagement (minutes, pageviews, categories) has a held-out concordance index of 0.507, and a day-7 landmark does not improve on it (0.506). On this data, neither the first session nor the first week ranks time-to-inactivity usefully; the timing signal would have to come from features outside the clickstream.
 3. **Hypothetical Economic Scenarios:** Campaign simulation and cost-optimal operating thresholds rely on unit-economic assumptions ($0.01 per impression, $10 per conversion). These are clearly labeled throughout code and reports as `SCENARIO - hypothetical cost/value, not observed data`.
 4. **Compute Scaling Constraints:** To keep evaluation feasible on local developer workstations, training splits for the 14M-row Criteo trial are capped at 3,000,000 rows. The optional learning curve experiment (`--learning-curve`) empirically evaluates performance scaling across 500k, 1M, 2M, and 3M rows.
 

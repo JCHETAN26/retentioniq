@@ -12,19 +12,11 @@
 
 ---
 
-> **Update (later on 2026-11-10).**
-> - **Done:** P0 #2–#4 and the documentation parts of §7.2/§7.3.
->   - `render_report.py` has no fallback values and refuses to run when `artifacts/` is empty.
->   - A key mismatch in the model-selection section is fixed.
->   - `FINDINGS.md` was regenerated and is now honestly empty.
->   - The README, the knowledge bank, the notebooks and `make_sample.py` were corrected and label the sample data as synthetic.
->   - The survival "interpretation" strings now follow the numbers.
->   - 2 renderer tests added, giving 66 unit tests.
-> - **Still open:** P0 #1 (`make reproduce`). It is blocked by:
->   - only 3.1 GB of free disk; the README says the full download is ~15 GB;
->   - no Kaggle credentials (RetailRocket);
->   - the Docker daemon not running;
->   - 8 GB of RAM for a 14M-row workload.
+> **Update: v0.6 results produced (2026-11-10, evening).** The full pipeline ran in a 4-core
+> GitHub Codespace on the real data. `make check`, `make reproduce`, `make promote` and
+> `make benchmark` all exited 0. `docs/RESULTS.md`, `docs/FINDINGS.md` and `docs/figures/` are
+> now generated from those artifacts (spec v0.6, git `20f499a`). Sections 1, 7 and 8 below are
+> kept as written before the run, as a record. **Read §13 first: it supersedes them.**
 
 ## 1. TL;DR for the incoming engineer
 
@@ -318,3 +310,42 @@ Every change before v0.6 was recorded *before* the affected models were fitted. 
 - `docs/EDA.md`: the exploratory analysis and the hypotheses tested.
 - `docs/RESULTS.md` / `docs/FINDINGS.md`: generated reports (currently stale, see §7).
 - `sql/README.md`, `analytics/powerbi/README.md`, `infrastructure/aws/README.md`, `apps/web/README.md`.
+
+---
+
+## 13. v0.6 run results and what changed (supersedes §1, §7, §8 where they conflict)
+
+**How it was run.**
+- Machine: GitHub Codespace `standardLinux32gb` (4 cores, 16 GB RAM, 32 GB workspace disk plus about 118 GB on `/tmp`).
+- Environment: the devcontainer's `make install` fails on a fresh Codespace with "No space left on device". The venv, raw data and Docker's data root had to move to `/tmp` (environment-only change, nothing in the repo). `data/models` must stay on the same filesystem as `artifacts/`, because `training/churn.py:455` moves files with `Path.replace`.
+- Timing: evaluate took about 1h50m in total; uplift was about 75 minutes of it.
+
+**Fixed in the repo during the run (branch `v0.6-report-cleanup`).**
+- Criteo download URL: `go.criteo.net` returns 404. It now points to Criteo's own ungated Hugging Face copy. The row count matches v0.5 exactly (13,979,592).
+- `render_report.py`:
+  - The uplift Qini and decile figures mixed the visit and conversion outcomes into one line per strategy. They now plot visit only.
+  - `RESULTS.md` had a trailing-blank-line issue.
+  - The uplift findings now report the paired-bootstrap significance, the conversion outcome and the response-model profit comparison.
+
+**Results (v0.6).**
+
+| Area | Result | Claim status |
+|---|---|---|
+| Churn ladder | M4 LightGBM PR-AUC 0.9521 [0.9493, 0.9550], same as v0.5 to 4 dp; parsimony rule keeps M4; M5 0.9514 | Holds |
+| Promotion | All 5 gates pass vs M1 reference; registered `retentioniq-churn` v1 | Holds |
+| Survival | First-session concordance 0.507; **day-7 landmark 0.506** | **"Day-7 breakthrough" refuted** |
+| Uplift (visit) | S-learner 0.0958 vs response 0.0864; bootstrap **not significant** (p = 0.096); causal forest is significant vs response (p = 0.004) | Weak |
+| Uplift (conversion) | Response model best (0.1921) | **Refuted for conversions** |
+| Campaign scenario | Response model peaks at 22% reach / $22.9k; S-learner 19% / $21.1k | Propensity wins under the assumed economics |
+| CLV | BG/NBD purchase MAE 0.689 vs naive 0.701 (−1.6%) | Marginal |
+| Serving | 668 req/s; p99 38 ms at concurrency 8; all SLOs met | Holds |
+
+**New open issues found by the run (prioritized).**
+1. **CLV bug (P0).** In `analytics/clv.py`, Gamma-Gamma average-spend predictions are NaN for 304 of 5,256 customers and negative for at least 25%. So `spearman_clv_vs_actual` is NaN, and segment CLV figures are unreliable (it is 0.57 if NaNs are dropped). This probably comes from the fitted parameters (q ≤ 1 makes the expected-spend formula negative). Check `ggf.params_`, guard against invalid fits, and add a unit test asserting finite, non-negative predictions.
+2. **`clv_by_segment.csv` "New Customers" row (P1).** It averages over only the 5 customers present in the calibration window but reports n = 85.
+3. **Possible test-set leakage in model selection (P1, spec decision).** The v0.6 parsimony rule (spec §5.5) chooses the champion with test-set bootstrap deltas. Selection should use validation; this needs a spec change-log entry.
+4. **Pairwise Qini bootstrap is single-threaded (P2).** `training/uplift.py:240` makes 12 comparisons × 1,000 draws × 500k rows, about 30 minutes on 1 core. Parallelizing it with `joblib` would cut that roughly 4×.
+5. **Fragile file moves (P2).** `training/churn.py:455` uses `Path.replace`; switch to `shutil.move` so model dirs can live on another volume.
+6. **Devcontainer disk (P2).** `.devcontainer/post-create.sh` should put `UV_PROJECT_ENVIRONMENT` and Docker's data root on `/tmp`, so a fresh Codespace installs without manual steps.
+7. **Odd threshold scenario (P2).** The most profitable churn threshold scenario contacts 99.8% of visitors. That is plausible given an 87% inactive base rate, but worth a sanity check.
+8. **Noisy rationale text (P2).** When the best model is also the simplest qualifying one, `churn_selection.json` reports a trivial CI ([0, 0]). The text should say so.

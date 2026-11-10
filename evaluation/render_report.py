@@ -585,14 +585,15 @@ def generate_figures() -> None:
     # 4. uplift_qini_curves.png
     curves = _csv("uplift_curves.csv")
     if curves is not None and "curve" in curves.columns:
-        qini_df = curves[curves["curve"] == "qini"]
+        # One outcome per figure: mixing visit and conversion joins two curves per strategy.
+        qini_df = curves[(curves["curve"] == "qini") & (curves["outcome"] == "visit")]
         if not qini_df.empty:
             fig, ax = plt.subplots(figsize=(8, 5), dpi=150)
             for strat, g in qini_df.groupby("strategy"):
                 ax.plot(g["fraction"], g["value"], label=str(strat), linewidth=1.8)
             ax.set_xlabel("Targeted Population Fraction")
             ax.set_ylabel("Cumulative Incremental Visits")
-            ax.set_title("Test Set Qini Curves across Targeting Strategies")
+            ax.set_title("Test Set Qini Curves (Visit) across Targeting Strategies")
             ax.legend(loc="lower right", fontsize=8)
             plt.tight_layout()
             fig.savefig(FIG / "uplift_qini_curves.png")
@@ -602,7 +603,7 @@ def generate_figures() -> None:
     calib = _csv("uplift_calibration_deciles.csv")
     if calib is not None and "decile" in calib.columns:
         fig, ax = plt.subplots(figsize=(8, 4.5), dpi=150)
-        for strat, g in calib.groupby("strategy"):
+        for strat, g in calib[calib["outcome"] == "visit"].groupby("strategy"):
             g_sorted = g.sort_values("decile")
             yerr = None
             if "ci_low" in g_sorted.columns and "ci_high" in g_sorted.columns:
@@ -628,7 +629,7 @@ def generate_figures() -> None:
                 )
         ax.set_xlabel("Predicted Uplift Decile (10 = Highest Predicted Uplift)")
         ax.set_ylabel("Incremental Uplift Rate (Treatment - Control)")
-        ax.set_title("Decile Uplift Calibration & Monotonicity Check")
+        ax.set_title("Decile Uplift Calibration (Visit) & Monotonicity Check")
         ax.legend(fontsize=8)
         plt.tight_layout()
         fig.savefig(FIG / "uplift_calibration_deciles.png")
@@ -790,36 +791,63 @@ def _findings_uplift() -> list[str]:
             f"- **Average effect (randomized, N = {exp['n']:,}):** treatment raised the visit"
             f" rate by {100 * visit['ate']:.3f} pp ({_pct(visit['relative_lift'])} relative)."
         )
-    test = res[(res["split"] == "test") & (res["outcome"] == "visit")].set_index("strategy")
-    if best in test.index and "response_model" in test.index:
+    pw = _csv("uplift_pairwise_qini.csv")
+    for outcome in ("visit", "conversion"):
+        test = res[(res["split"] == "test") & (res["outcome"] == outcome)].set_index("strategy")
+        if best not in test.index or "response_model" not in test.index:
+            continue
         q_best = test.loc[best, "qini_coefficient"]
         q_resp = test.loc["response_model", "qini_coefficient"]
         verdict = "beats" if q_best > q_resp else "does not beat"
-        out.append(
-            f"- **Uplift vs propensity:** the strategy selected on validation Qini, `{best}`,"
-            f" {verdict} the response (propensity) model on test Qini for visits"
-            f" ({q_best:.4f} vs {q_resp:.4f})."
+        line = (
+            f"- **Uplift vs propensity ({outcome}):** the strategy selected on validation Qini,"
+            f" `{best}`, {verdict} the response (propensity) model on test Qini"
+            f" ({q_best:.4f} vs {q_resp:.4f})"
         )
+        if pw is not None:
+            pair = pw[
+                (pw["outcome"] == outcome)
+                & pw["strategy_a"].isin([best, "response_model"])
+                & pw["strategy_b"].isin([best, "response_model"])
+            ]
+            if not pair.empty:
+                r = pair.iloc[0]
+                sig = "significant" if r["significant"] else "not significant"
+                line += (
+                    f"; paired bootstrap: {sig} (p = {r['p_value']:.3f},"
+                    f" 95% CI [{r['ci_low']:.4f}, {r['ci_high']:.4f}])"
+                )
+        out.append(line + ".")
     calib = _csv("uplift_calibration_deciles.csv")
     if calib is not None and visit:
-        top = calib[
-            (calib["strategy"] == best) & (calib["outcome"] == "visit") & (calib["decile"] == 10)
-        ]
-        if not top.empty:
-            ratio = top["observed_uplift"].iloc[0] / visit["ate"]
-            out.append(
-                f"- **Top decile:** observed visit uplift in `{best}`'s top score decile is"
-                f" {ratio:.1f}x the population average effect."
+        top = calib[(calib["outcome"] == "visit") & (calib["decile"] == 10)].set_index("strategy")
+        if best in top.index:
+            ratio = top.loc[best, "observed_uplift"] / visit["ate"]
+            line = (
+                f"- **Top decile (visit):** observed uplift in `{best}`'s top score decile is"
+                f" {ratio:.1f}x the population average effect"
             )
+            if "response_model" in top.index and best != "response_model":
+                r_ratio = top.loc["response_model", "observed_uplift"] / visit["ate"]
+                line += f" (response model's top decile: {r_ratio:.1f}x)"
+            out.append(line + ".")
     opt = _csv("campaign_optimal_reach.csv")
     if opt is not None:
-        row = opt[(opt["strategy"] == best) & opt["is_optimal"].astype(bool)]
-        if not row.empty:
-            out.append(
-                f"- **Reach (SCENARIO, hypothetical economics):** under the assumed cost and"
-                f" conversion value, `{best}` net value peaks at"
-                f" {_pct(row['reach'].iloc[0], 0)} reach."
+        peaks = opt[opt["is_optimal"].astype(bool)].set_index("strategy")
+        if best in peaks.index:
+            line = (
+                f"- **Reach (SCENARIO, hypothetical economics, conversion-based):** `{best}` net"
+                f" value peaks at {_pct(peaks.loc[best, 'reach'], 0)} reach"
+                f" ({peaks.loc[best, 'net_value']:,.0f})"
             )
+            if "response_model" in peaks.index and best != "response_model":
+                r = peaks.loc["response_model"]
+                more = "more" if r["net_value"] > peaks.loc[best, "net_value"] else "less"
+                line += (
+                    f"; the response model peaks at {_pct(r['reach'], 0)}"
+                    f" ({r['net_value']:,.0f}), {more} than the uplift strategy"
+                )
+            out.append(line + ".")
     out.append("")
     out += _fig_links(
         ("Qini Curves", "uplift_qini_curves.png"),
@@ -882,7 +910,7 @@ def main() -> None:
             lines += [*part, ""]
     out = ROOT / "docs" / "RESULTS.md"
     out.parent.mkdir(exist_ok=True)
-    out.write_text("\n".join(lines) + "\n")
+    out.write_text("\n".join(lines).rstrip() + "\n")
     print(f"wrote {out}")
 
     generate_findings()

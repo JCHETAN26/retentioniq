@@ -14,7 +14,7 @@
   - *Infrastructure as Code:* Terraform `>= 1.6` (AWS ECS Fargate, ALB, ECR, S3, CloudWatch), Docker Compose v2
   - *Reporting & BI:* Microsoft Power BI (Service via multi-table Excel semantic model / Desktop via direct PostgreSQL connection, with versioned DAX measures)
 - **Development Timeline / Status:**
-  - Status (2026-11-10): **v0.5 benchmark-verified; v0.6 code complete but not yet run on real data.** The last full run (spec v0.5, git `bcce5ce`, report at `git show 1a8b06b:docs/RESULTS.md`) passed all promotion gates and serving SLOs; every benchmark in §4 comes from that run. v0.6 additions (parsimony rule, cross-fitted X-learner, day-7 landmark, CLV) have unit tests only.
+  - Status (2026-11-10): **v0.6 run complete on real data** (git `20f499a`; see `docs/RESULTS.md` and `docs/STATUS_REPORT.md` §13). Churn and serving results reproduce v0.5. The day-7 landmark claim is refuted (concordance 0.506 vs 0.507), and uplift beats propensity only on visits, without statistical significance. The benchmark tables in §4 below are from the earlier v0.5 run.
   - Implementation Progression: Scaffold & Spec Contract (`69cd817`) $\to$ Idempotent Ingestion & Contracts (`b1c0eef`) $\to$ dbt Warehouse & Feature Pipeline (`2f8e758`) $\to$ Customer Analytics, Survival & Uplift (`8b56af0`) $\to$ Web App, Monitoring & Airflow (`8ede41e`) $\to$ AWS Terraform & Power BI Publishing (`ab8cd02`) $\to$ Test Isolation & C++ Serving Optimization (`9512fff`) $\to$ Deterministic Fits & Final Benchmark Verification (`bcce5ce`, `33df0e1`).
 - **Repository Layout & Core Directories:**
   - `src/retentioniq/`: Production Python package containing core modules:
