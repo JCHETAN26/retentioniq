@@ -86,7 +86,59 @@ def test_selection_signature_accepts_no_test_data() -> None:
     import inspect
 
     params = set(inspect.signature(select_champion).parameters)
-    assert params == {"y_val", "val_preds", "complexity_order", "groups", "n_boot", "seed"}
+    assert params == {
+        "y_val",
+        "val_preds",
+        "complexity_order",
+        "groups",
+        "n_boot",
+        "seed",
+        "latency_p95_ms",
+        "latency_budget_ms",
+    }
+
+
+def test_selection_excludes_models_over_the_latency_budget() -> None:
+    """A model tied on accuracy but too slow to serve cannot be champion (spec v0.6.3)."""
+    y, preds = _ladder_val_preds(2000, 1)
+    fast = dict.fromkeys(preds, 0.5)
+    without = select_champion(y, preds, COMPLEXITY_ORDER, n_boot=200, seed=0, latency_p95_ms=fast)
+    assert without.selected_champion == "M2_logistic_full"
+
+    slow = {**fast, "M2_logistic_full": 40.0, "M3_random_forest": 50.0}
+    sel = select_champion(y, preds, COMPLEXITY_ORDER, n_boot=200, seed=0, latency_p95_ms=slow)
+    assert sel.selected_champion == "M4_lightgbm"
+    assert {d["model"] for d in sel.ineligible} == {"M2_logistic_full", "M3_random_forest"}
+    assert "Not eligible" in sel.reasoning
+    # Ineligible models keep their validation score in the record, for reporting.
+    assert "M3_random_forest" in sel.val_pr_auc
+
+
+def test_selection_fails_loudly_when_nothing_is_servable() -> None:
+    y, preds = _ladder_val_preds(500, 3)
+    with pytest.raises(ValueError, match="no eligible"):
+        select_champion(
+            y, preds, COMPLEXITY_ORDER, n_boot=50, latency_p95_ms=dict.fromkeys(preds, 99.0)
+        )
+
+
+def test_score_one_fast_path_matches_predict_proba() -> None:
+    """The booster fast path the API uses must give the same score as the sklearn path."""
+    from retentioniq.models.churn.ladder import GradientBoosting, Logistic
+    from retentioniq.models.churn.latency import measure_latency_ms, score_one
+
+    rng = np.random.default_rng(0)
+    feats = ["recency_days", "sessions_obs", "tenure_days"]
+    x = pd.DataFrame(rng.random((400, 3)), columns=feats)
+    y = (x["recency_days"] + rng.normal(0, 0.2, 400) > 0.5).astype(int).to_numpy()
+    ident = lambda p: p  # noqa: E731
+    for model in (GradientBoosting(features=feats), Logistic(features=feats, name="M2")):
+        model.fit(x[:300], y[:300], x[300:], y[300:])
+        ref = model.predict_proba(x[300:305])
+        fast = [score_one(model, ident, feats, r) for r in x[300:305].to_dict("records")]
+        np.testing.assert_allclose(fast, ref, rtol=1e-6)
+        lat = measure_latency_ms(model, ident, feats, x, n=30, warmup=5)
+        assert lat["n"] == 30 and lat["p95_ms"] >= lat["p50_ms"] > 0
 
 
 def test_torch_mlp_6_config_grid() -> None:

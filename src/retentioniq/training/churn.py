@@ -34,6 +34,7 @@ from retentioniq.models.churn.ladder import (
     RecencyBaseline,
     TorchMLP,
 )
+from retentioniq.models.churn.latency import measure_latency_ms
 from retentioniq.models.churn.metrics import (
     best_f1_threshold,
     bootstrap_ci,
@@ -203,6 +204,15 @@ def run_ladder(
             )
     pd.DataFrame(pairwise_rows).to_csv(out / "churn_pairwise_deltas.csv", index=False)
 
+    # Serving-cost eligibility (spec v0.6.3): single-record latency on the API's code path,
+    # measured on validation rows.
+    latency = {
+        name: measure_latency_ms(mdl, cal_, ALL_FEATURES, val)
+        for name, (mdl, cal_) in fitted.items()
+    }
+    comparison["serving_p50_ms"] = comparison["model"].map(lambda n: latency[n]["p50_ms"])
+    comparison["serving_p95_ms"] = comparison["model"].map(lambda n: latency[n]["p95_ms"])
+
     # Complexity rule (spec §5.5, v0.6.2): decided on validation only.
     selection = select_champion(
         y_va,
@@ -211,6 +221,7 @@ def run_ladder(
         groups=val["visitor_id"].to_numpy(),
         n_boot=N_BOOT,
         seed=SEED,
+        latency_p95_ms={name: v["p95_ms"] for name, v in latency.items()},
     )
     champion = selection.selected_champion
     comparison["is_champion"] = comparison["model"] == champion
