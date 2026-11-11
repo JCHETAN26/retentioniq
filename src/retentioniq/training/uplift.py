@@ -74,7 +74,20 @@ def load_population(database_url: str) -> pd.DataFrame:
             "visit": "int8",
             "conversion": "int8",
         }
-        return pd.read_csv(tmp.name, names=cols, dtype=dtypes, engine="pyarrow")
+        df = pd.read_csv(tmp.name, names=cols, dtype=dtypes, engine="pyarrow")
+    return canonical_order(df)
+
+
+def canonical_order(df: pd.DataFrame) -> pd.DataFrame:
+    """Sort by `row_id` (the source-file row, unique per dbt test) before any seeded split.
+
+    A SELECT without ORDER BY returns rows in Postgres's physical order, which differs between
+    loads. The seeded splits and subsamples are positional, so without this they pick different
+    rows on every run and the uplift results are not reproducible (spec v0.6.4).
+    """
+    if not df["row_id"].is_unique:
+        raise ValueError("row_id is not unique; cannot fix a deterministic row order")
+    return df.sort_values("row_id", kind="stable").reset_index(drop=True)
 
 
 def experiment_analysis(df: pd.DataFrame) -> dict[str, Any]:
