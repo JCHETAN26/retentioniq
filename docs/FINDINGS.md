@@ -28,3 +28,9 @@ _Figures: [Day-7 Landmark Retention Curves](figures/survival_landmark_km.png)_
 - **Reach (SCENARIO, hypothetical economics, conversion-based):** `s_learner_lgbm` net value peaks at 19% reach (21,061); the response model peaks at 22% (22,881), more than the uplift strategy.
 
 _Figures: [Qini Curves](figures/uplift_qini_curves.png) | [Decile Uplift Calibration](figures/uplift_calibration_deciles.png) | [Campaign Net Value vs Reach](figures/campaign_net_value_by_reach.png)_
+
+## 4. Customer lifetime value (Online Retail II)
+- **Purchase counts:** BG/NBD 90-day MAE 0.694 vs 0.701 for the naive historical rate (better, +0.9%).
+- **Ranking customers by future spend:** Spearman 0.579 vs 0.525 naive (higher); spend MAE 376.47 vs 367.16.
+- **Spend model:** Gamma-Gamma q=0.340 <= 1: population mean spend undefined; used empirical-Bayes log-normal instead.
+- **Aggregate:** predicts 67% of actual holdout revenue. BG/NBD assumes stationary purchase rates, so a holdout window with a seasonal peak is under-forecast; use it to rank customers, not as a revenue forecast.

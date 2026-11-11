@@ -337,12 +337,12 @@ Every change before v0.6 was recorded *before* the affected models were fitted. 
 | Uplift (visit) | S-learner 0.0958 vs response 0.0864; bootstrap **not significant** (p = 0.096); causal forest is significant vs response (p = 0.004) | Weak |
 | Uplift (conversion) | Response model best (0.1921) | **Refuted for conversions** |
 | Campaign scenario | Response model peaks at 22% reach / $22.9k; S-learner 19% / $21.1k | Propensity wins under the assumed economics |
-| CLV | BG/NBD purchase MAE 0.689 vs naive 0.701 (−1.6%) | Marginal |
+| CLV (re-run under v0.6.1 after the fix below) | BG/NBD purchase MAE 0.694 vs naive 0.701; spend-ranking Spearman 0.579 vs 0.525 | Better at ranking; not a revenue forecast |
 | Serving | 668 req/s; p99 38 ms at concurrency 8; all SLOs met | Holds |
 
 **New open issues found by the run (prioritized).**
-1. **CLV bug (P0).** In `analytics/clv.py`, Gamma-Gamma average-spend predictions are NaN for 304 of 5,256 customers and negative for at least 25%. So `spearman_clv_vs_actual` is NaN, and segment CLV figures are unreliable (it is 0.57 if NaNs are dropped). This probably comes from the fitted parameters (q ≤ 1 makes the expected-spend formula negative). Check `ggf.params_`, guard against invalid fits, and add a unit test asserting finite, non-negative predictions.
-2. **`clv_by_segment.csv` "New Customers" row (P1).** It averages over only the 5 customers present in the calibration window but reports n = 85.
+1. **CLV bug (P0). FIXED in v0.6.1 (`67d6365`).** Two causes. (a) `lifetimes` takes `log()` of a hypergeometric term that is legitimately negative when a + b + x − 1 < 0, giving NaN purchase predictions for 304 one-time buyers; `np.mean` on a Series skipped them, so the MAE looked fine. Now evaluated in closed form (matches lifetimes to 3e-13 where it is finite). (b) Gamma-Gamma fitted q = 0.34; with q ≤ 1 the population mean is undefined and 1,643 customers got negative spend. Spend now uses Gamma-Gamma only when q > 1, else an empirical-Bayes log-normal model. Predictions are asserted finite and non-negative; 3 unit tests added. Re-run from `fact_orders` rebuilt in pandas from the raw xlsx, which reproduced every pre-fix metric exactly.
+2. **`clv_by_segment.csv` "New Customers" row (P1). FIXED** by the same change: the segment means were silently skipping the NaN predictions.
 3. **Possible test-set leakage in model selection (P1, spec decision).** The v0.6 parsimony rule (spec §5.5) chooses the champion with test-set bootstrap deltas. Selection should use validation; this needs a spec change-log entry.
 4. **Pairwise Qini bootstrap is single-threaded (P2).** `training/uplift.py:240` makes 12 comparisons × 1,000 draws × 500k rows, about 30 minutes on 1 core. Parallelizing it with `joblib` would cut that roughly 4×.
 5. **Fragile file moves (P2).** `training/churn.py:455` uses `Path.replace`; switch to `shutil.move` so model dirs can live on another volume.
