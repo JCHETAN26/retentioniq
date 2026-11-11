@@ -134,6 +134,61 @@ class Logistic:
         assert self.model_ is not None
         return np.asarray(self.model_.predict_proba(x[self.features])[:, 1])
 
+    def linear_form(self) -> "LinearForm":
+        """The fitted pipeline folded into NumPy arrays, for single-record serving."""
+        assert self.model_ is not None
+        cached = self.__dict__.get("_linear_form")
+        if cached is None:
+            cached = LinearForm.from_pipeline(self.model_)
+            self.__dict__["_linear_form"] = cached
+        return cached
+
+
+@dataclass(frozen=True)
+class LinearForm:
+    """log1p on some columns -> standardise -> logistic, as plain arrays.
+
+    Equivalent to `_linear_pipeline(...).predict_proba(x)[:, 1]`, without the per-call
+    DataFrame, column-transformer and validation overhead (spec §5.5 serving budget).
+    """
+
+    features: tuple[str, ...]  # in the transformer's output order
+    log_mask: np.ndarray
+    mean: np.ndarray
+    scale: np.ndarray
+    coef: np.ndarray
+    intercept: float
+
+    @classmethod
+    def from_pipeline(cls, pipe: Pipeline) -> "LinearForm":
+        pre, clf = pipe.named_steps["pre"], pipe.named_steps["clf"]
+        feats: list[str] = []
+        log_mask: list[bool] = []
+        means: list[np.ndarray] = []
+        scales: list[np.ndarray] = []
+        for name, trans, cols in pre.transformers_:
+            if name == "remainder" or len(cols) == 0:
+                continue
+            scaler = trans.named_steps["scale"] if name == "log" else trans
+            feats += list(cols)
+            log_mask += [name == "log"] * len(cols)
+            means.append(np.asarray(scaler.mean_, dtype=np.float64))
+            scales.append(np.asarray(scaler.scale_, dtype=np.float64))
+        return cls(
+            tuple(feats),
+            np.asarray(log_mask, dtype=bool),
+            np.concatenate(means),
+            np.concatenate(scales),
+            np.asarray(clf.coef_[0], dtype=np.float64),
+            float(clf.intercept_[0]),
+        )
+
+    def predict_one(self, values: Any) -> float:
+        x = np.fromiter((values[f] for f in self.features), np.float64, len(self.features))
+        x[self.log_mask] = np.log1p(x[self.log_mask])
+        z = float(((x - self.mean) / self.scale) @ self.coef) + self.intercept
+        return float(1.0 / (1.0 + np.exp(-z)))
+
 
 @dataclass
 class RandomForest:

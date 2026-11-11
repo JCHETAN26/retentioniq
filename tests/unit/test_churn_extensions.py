@@ -141,6 +141,29 @@ def test_score_one_fast_path_matches_predict_proba() -> None:
         assert lat["n"] == 30 and lat["p95_ms"] >= lat["p50_ms"] > 0
 
 
+def test_linear_fast_path_matches_pipeline() -> None:
+    """Folded logistic coefficients must reproduce the sklearn pipeline exactly, for a mix of
+    log1p and plain-scaled columns, and when the model uses a subset of the request's fields."""
+    from retentioniq.models.churn.ladder import Logistic
+    from retentioniq.models.churn.latency import score_one
+
+    rng = np.random.default_rng(1)
+    feats = ["cart_ratio", "recency_days", "is_weekend_shopper", "sessions_obs", "views_obs"]
+    x = pd.DataFrame(rng.random((500, 5)) * [1, 60, 1, 20, 300], columns=feats)
+    x["is_weekend_shopper"] = (x["is_weekend_shopper"] > 0.5).astype(float)
+    y = (x["recency_days"] / 60 + rng.normal(0, 0.3, 500) > 0.5).astype(int).to_numpy()
+    ident = lambda p: p  # noqa: E731
+    subset = ["views_obs", "cart_ratio", "recency_days"]
+    for model_feats in (feats, subset):
+        model = Logistic(features=model_feats, name="M")
+        model.fit(x[:400], y[:400], x[400:], y[400:])
+        form = model.linear_form()
+        assert form.log_mask.any() and not form.log_mask.all()
+        ref = model.predict_proba(x[400:])
+        fast = [score_one(model, ident, feats, r) for r in x[400:].to_dict("records")]
+        np.testing.assert_allclose(fast, ref, rtol=1e-9, atol=1e-12)
+
+
 def test_torch_mlp_6_config_grid() -> None:
     pytest.importorskip("torch")
     from retentioniq.models.churn.ladder import TorchMLP
