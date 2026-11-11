@@ -334,9 +334,9 @@ Every change before v0.6 was recorded *before* the affected models were fitted. 
 | Churn ladder | M4 LightGBM PR-AUC 0.9521 [0.9493, 0.9550], same as v0.5 to 4 dp; parsimony rule keeps M4; M5 0.9514 | Holds |
 | Promotion | All 5 gates pass vs M1 reference; registered `retentioniq-churn` v1 | Holds |
 | Survival | First-session concordance 0.507; **day-7 landmark 0.506** | **"Day-7 breakthrough" refuted** |
-| Uplift (visit) | S-learner 0.0958 vs response 0.0864; bootstrap **not significant** (p = 0.096); causal forest is significant vs response (p = 0.004) | Weak |
-| Uplift (conversion) | Response model best (0.1921) | **Refuted for conversions** |
-| Campaign scenario | Response model peaks at 22% reach / $22.9k; S-learner 19% / $21.1k | Propensity wins under the assumed economics |
+| Uplift (visit), v0.6.4 | S-learner 0.0927 vs response 0.0858; bootstrap **significant** (p = 0.020, CI [0.0018, 0.0241]); causal forest also significant (p < 0.001). The v0.6 run's split gave p = 0.096 | Holds on visits, split-sensitive |
+| Uplift (conversion), v0.6.4 | Response model best (0.1851 vs S-learner 0.1763; no pairwise difference significant) | **Refuted for conversions** |
+| Campaign scenario, v0.6.4 | Response model peaks at 22% reach / $21.4k; S-learner 19% / $21.3k | Level under the assumed economics |
 | CLV (re-run under v0.6.1 after the fix below) | BG/NBD purchase MAE 0.694 vs naive 0.701; spend-ranking Spearman 0.579 vs 0.525 | Better at ranking; not a revenue forecast |
 | Serving | 668 req/s; p99 38 ms at concurrency 8; all SLOs met | Holds |
 
@@ -348,4 +348,5 @@ Every change before v0.6 was recorded *before* the affected models were fitted. 
 5. **Fragile file moves (P2).** `training/churn.py:455` uses `Path.replace`; switch to `shutil.move` so model dirs can live on another volume.
 6. **Devcontainer disk (P2).** `.devcontainer/post-create.sh` should put `UV_PROJECT_ENVIRONMENT` and Docker's data root on `/tmp`, so a fresh Codespace installs without manual steps.
 7. **Odd threshold scenario (P2).** The most profitable churn threshold scenario contacts 99.8% of visitors. That is plausible given an 87% inactive base rate, but worth a sanity check.
+8. **Uplift results depended on database row order (P1). FIXED in spec v0.6.4 (`2034f37`).** `load_population` read the mart without ORDER BY, and the seeded splits are positional, so two runs of identical code trained and tested on different rows (S-learner vs propensity on visits: p = 0.096, then p = 0.020). The population is now sorted by `row_id` before splitting; a real-data check confirmed that a shuffled load gives identical splits, and the re-run reproduced the second run exactly. Churn was unaffected (it sorts its inputs).
 8. **Noisy rationale text (P2).** When the best model is also the simplest qualifying one, `churn_selection.json` reports a trivial CI ([0, 0]). The text should say so.

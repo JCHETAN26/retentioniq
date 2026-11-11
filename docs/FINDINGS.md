@@ -7,7 +7,7 @@ _Full tables and confidence intervals: [RESULTS.md](RESULTS.md)._
 - **Base rate:** 87.4% of test-snapshot visitors were inactive in the prediction window, so PR-AUC on the inactive class starts at ~0.874 for a random score. The minority who return are the commercially relevant group.
 - **Champion:** `M4_lightgbm` with test PR-AUC 0.9521 (95% CI [0.9493, 0.9550]), vs 0.9300 for the naive recency baseline.
 - **Returner view:** among the top 10% scored as most likely to return, the champion's lift over the returner base rate is 3.51x.
-- **Selection rule:** M4_lightgbm has the highest validation PR-AUC (0.9475). Every simpler model is significantly worse on validation (2 checked), so it is kept. Not eligible (single-record p95 over the 5 ms budget): M2_logistic_full (6.5 ms), M3_random_forest (72.5 ms).
+- **Selection rule:** M4_lightgbm has the highest validation PR-AUC (0.9475). Every simpler model is significantly worse on validation (3 checked), so it is kept. Not eligible (single-record p95 over the 5 ms budget): M3_random_forest (60.8 ms).
 - **Operating threshold (SCENARIO, hypothetical economics):** across 9 cost/value scenarios the cost-optimal threshold ranges 0.125-0.672; the most profitable scenario contacts 99.8% of visitors.
 - **Top drivers (mean |SHAP|):** `recency_vs_typical_gap`, `recency_days`, `tenure_days`.
 
@@ -22,10 +22,10 @@ _Figures: [Day-7 Landmark Retention Curves](figures/survival_landmark_km.png)_
 
 ## 3. Uplift targeting (Criteo randomized trial)
 - **Average effect (randomized, N = 13,979,592):** treatment raised the visit rate by 1.034 pp (27.1% relative).
-- **Uplift vs propensity (visit):** the strategy selected on validation Qini, `s_learner_lgbm`, beats the response (propensity) model on test Qini (0.0958 vs 0.0864); paired bootstrap: not significant (p = 0.096, 95% CI [-0.0015, 0.0198]).
-- **Uplift vs propensity (conversion):** the strategy selected on validation Qini, `s_learner_lgbm`, does not beat the response (propensity) model on test Qini (0.1643 vs 0.1921).
-- **Top decile (visit):** observed uplift in `s_learner_lgbm`'s top score decile is 6.4x the population average effect (response model's top decile: 5.0x).
-- **Reach (SCENARIO, hypothetical economics, conversion-based):** `s_learner_lgbm` net value peaks at 19% reach (21,061); the response model peaks at 22% (22,881), more than the uplift strategy.
+- **Uplift vs propensity (visit):** the strategy selected on validation Qini, `s_learner_lgbm`, beats the response (propensity) model on test Qini (0.0927 vs 0.0858); paired bootstrap: significant (p = 0.020, 95% CI [0.0018, 0.0241]).
+- **Uplift vs propensity (conversion):** the strategy selected on validation Qini, `s_learner_lgbm`, does not beat the response (propensity) model on test Qini (0.1763 vs 0.1851).
+- **Top decile (visit):** observed uplift in `s_learner_lgbm`'s top score decile is 6.4x the population average effect (response model's top decile: 5.1x).
+- **Reach (SCENARIO, hypothetical economics, conversion-based):** `s_learner_lgbm` net value peaks at 19% reach (21,318); the response model peaks at 22% (21,445), more than the uplift strategy.
 
 _Figures: [Qini Curves](figures/uplift_qini_curves.png) | [Decile Uplift Calibration](figures/uplift_calibration_deciles.png) | [Campaign Net Value vs Reach](figures/campaign_net_value_by_reach.png)_
 
