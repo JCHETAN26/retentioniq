@@ -22,7 +22,7 @@ The project was built to test three claims. It reports what the data said, inclu
 
 ## Results
 
-All numbers come from one full run on the real datasets (spec v0.6, git `20f499a`, 4-core / 16 GB). The CLV stage was re-run under spec v0.6.1 (git `67d6365`) after a bug fix. Every table and figure is rendered from `artifacts/` by `make report`: [`docs/RESULTS.md`](docs/RESULTS.md) has every table with confidence intervals, and [`docs/FINDINGS.md`](docs/FINDINGS.md) has the executive summary.
+All numbers come from one full run on the real datasets (spec v0.6, git `20f499a`, 4-core / 16 GB). Two stages were re-run after fixes: CLV under spec v0.6.1 (git `67d6365`), and churn + SHAP under spec v0.6.3 (git `f20edae`), with validation-only selection and a serving-latency gate. Every table and figure is rendered from `artifacts/` by `make report`: [`docs/RESULTS.md`](docs/RESULTS.md) has every table with confidence intervals, and [`docs/FINDINGS.md`](docs/FINDINGS.md) has the executive summary.
 
 ### 1. Inactivity prediction (RetailRocket)
 
@@ -30,14 +30,16 @@ All numbers come from one full run on the real datasets (spec v0.6, git `20f499a
 
 87.4% of test visitors go inactive, so a random score already scores ≈ 0.874 PR-AUC. The ladder is judged against that floor and against a one-feature recency baseline:
 
-| Model | Test PR-AUC [95% CI] | Brier |
-|---|---|---|
-| M0 naive recency | 0.9300 [0.9268, 0.9334] | 0.1039 |
-| M1 logistic on RFM | 0.9384 [0.9352, 0.9418] | 0.0987 |
-| M2 logistic, all 30 features | 0.9496 [0.9468, 0.9528] | 0.0946 |
-| M3 random forest | 0.9498 [0.9470, 0.9526] | 0.0938 |
-| **M4 LightGBM (champion)** | **0.9521 [0.9493, 0.9550]** | **0.0933** |
-| M5 PyTorch MLP (6-config grid) | 0.9514 [0.9487, 0.9545] | 0.0937 |
+| Model | Validation PR-AUC | Test PR-AUC [95% CI] | Brier | Scoring p95 |
+|---|---|---|---|---|
+| M0 naive recency | 0.9201 | 0.9300 [0.9268, 0.9334] | 0.1039 | 0.8 ms |
+| M1 logistic on RFM | 0.9301 | 0.9384 [0.9352, 0.9418] | 0.0987 | 4.9 ms |
+| M2 logistic, all 30 features | 0.9448 | 0.9496 [0.9468, 0.9528] | 0.0946 | 6.5 ms ✗ |
+| M3 random forest | 0.9471 | 0.9498 [0.9470, 0.9526] | 0.0938 | 72.5 ms ✗ |
+| **M4 LightGBM (champion)** | **0.9475** | **0.9521 [0.9493, 0.9550]** | **0.0933** | **0.08 ms** |
+| M5 PyTorch MLP (6-config grid) | 0.9473 | 0.9514 [0.9487, 0.9545] | 0.0937 | 1.2 ms |
+
+✗ = over the 5 ms single-record budget derived from the 200 req/s serving SLO, so not eligible as champion (spec §5.5).
 
 | Model ladder | Drivers (mean \|SHAP\|) |
 |:---:|:---:|
@@ -45,7 +47,9 @@ All numbers come from one full run on the real datasets (spec v0.6, git `20f499a
 
 - **What the model adds:** most of the gain comes from moving to the full feature set (M1 → M2), not from model capacity. Nonlinear models add about 0.003 PR-AUC on top. The top drivers are `recency_vs_typical_gap`, `recency_days` and `tenure_days`.
 - **Where it is useful:** among the 10% the model ranks most likely to *return*, the returner rate is 3.5× the base rate. That's the list a win-back team would actually work.
-- **Promotion:** M4 passed all 5 gates against the M1 reference: PR-AUC non-inferiority, Brier, per-segment degradation ≤ 0.03, dbt data validation and the schema contract. It's registered in MLflow as `retentioniq-churn` v1.
+- **Selection (validation only):** M4 has the best validation PR-AUC, and every *eligible* simpler model (M0, M1) is significantly worse on validation, so M4 is champion. M3 random forest is statistically tied with M4 on validation, but serves at 72.5 ms p95, so it is not eligible.
+- **Why the latency rule exists:** under spec v0.6.2 (validation-only selection, no latency check), M3 was selected and promoted. The API then served 28 req/s with p95 384 ms, against an SLO of 200 req/s and p95 100 ms. Spec v0.6.3 adds serving-cost eligibility and a latency promotion gate; the change log records that the rule was added after seeing that result.
+- **Promotion:** M4 passed all 6 gates against the M1 reference: PR-AUC non-inferiority, Brier, per-segment degradation ≤ 0.03, dbt data validation, the schema contract and serving latency (0.08 ms p95 vs a 5 ms budget).
 
 ### 2. Time to inactivity (RetailRocket)
 
@@ -108,6 +112,8 @@ The point of the project is that its numbers can be trusted, so the evaluation i
   - Label windows of train, validation and test never overlap.
   - Survival covariates come from the first session only (avoiding immortal-time bias), and landmark covariates come from [origin, origin + 7d).
 - **Selection on validation, reporting on test:**
+  - The churn champion is chosen by a validation-only rule (`models/churn/selection.py`); its signature accepts no test data, and a unit test pins that. Before spec v0.6.2 the rule's tie test used the test set, which is what had kept LightGBM as champion in v0.6.
+  - Production constraints are part of selection, not an afterthought: a model must fit the 5 ms single-record budget, timed on the same function the API serves with (`models/churn/latency.py`).
   - Uplift learners are selected on validation Qini.
   - The X-learner's first stage is 2-fold cross-fitted, so counterfactuals are never imputed in-sample.
 - **Uncertainty everywhere:** bootstrap CIs on every headline metric, plus paired bootstrap tests for model-vs-model claims. A difference is only called "better" when its CI excludes zero.
@@ -159,7 +165,7 @@ The three datasets are never joined. Each is its own case study with its own pip
 | **Orchestration** | `make reproduce` locally. The Airflow DAG `retentioniq_training` runs weekly: `validate → transform → [train, analytics]`, then `train → explain → promote` |
 | **Data quality** | Pandera contracts at ingest: rejected rows go to `quarantine.rejected_records`, and a file over its reject budget rolls back. `dbt build` runs 75 models and tests |
 | **Experiment tracking** | MLflow (Postgres backend), with every ladder run logged |
-| **Promotion** | `retentioniq promote` registers a challenger only if all 5 gates pass (spec §9.1); the decision is written to `artifacts/promotion_decision.json` |
+| **Promotion** | `retentioniq promote` registers a challenger only if all 6 gates pass, including serving latency (spec §9.1); the decision is written to `artifacts/promotion_decision.json` |
 | **Serving** | FastAPI with a LightGBM booster fast path and optional per-request TreeSHAP explanations |
 | **Monitoring** | `retentioniq monitor`: feature and prediction PSI, missingness, ECE and freshness against the spec §9.3 thresholds. Prometheus scrapes `/metrics`; Grafana dashboard and alert rules are in `monitoring/` |
 | **Deployment** | Terraform for AWS ECS Fargate behind an ALB, ECR, a versioned S3 raw bucket, and CloudWatch alarms → SNS ([`infrastructure/aws`](infrastructure/aws/README.md)). Definitions only; not deployed as part of the reported run |
@@ -180,17 +186,17 @@ The three datasets are never joined. Each is its own case study with its own pip
 
 ### Serving performance
 
-Measured with `make benchmark` against the local container (4 CPU, closed-loop httpx, 20 s per run):
+Measured with `make benchmark` (spec v0.6.3 run, M4 champion) against the local server (4 CPU, closed-loop httpx, 20 s per run):
 
 | Run | Throughput | p50 | p95 | p99 | Errors |
 |---|---|---|---|---|---|
-| predict, concurrency 1 | 475 req/s | 2.1 ms | 2.4 ms | 2.9 ms | 0 |
-| **predict, concurrency 8 (SLO run)** | **668 req/s** | **10.1 ms** | **23.1 ms** | **38.2 ms** | **0** |
-| predict + SHAP, concurrency 8 | 478 req/s | 15.2 ms | 31.2 ms | 36.7 ms | 0 |
-| predict, concurrency 32 | 384 req/s | 49.8 ms | 258.5 ms | 439.2 ms | 0 |
-| batch, concurrency 4 | 205 req/s | 19.1 ms | 25.7 ms | 29.6 ms | 0 |
+| predict, concurrency 1 | 474 req/s | 2.1 ms | 2.4 ms | 2.8 ms | 0 |
+| **predict, concurrency 8 (SLO run)** | **664 req/s** | **9.1 ms** | **29.2 ms** | **51.3 ms** | **0** |
+| predict + SHAP, concurrency 8 | 444 req/s | 19.8 ms | 35.1 ms | 41.2 ms | 0 |
+| predict, concurrency 32 | 446 req/s | 45.2 ms | 220.6 ms | 347.2 ms | 0 |
+| batch, concurrency 4 | 203 req/s | 19.2 ms | 25.5 ms | 29.2 ms | 0 |
 
-All spec §9.2 SLOs (p50 ≤ 25 ms, p95 ≤ 100 ms, p99 ≤ 250 ms, ≥ 200 req/s, < 0.1% 5xx) pass at concurrency 8. At concurrency 32 one process saturates and p95 breaks the SLO, so production should scale out on CPU utilisation rather than queue deeper.
+All spec §9.2 SLOs (p50 ≤ 25 ms, p95 ≤ 100 ms, p99 ≤ 250 ms, ≥ 200 req/s, < 0.1% 5xx) pass at concurrency 8. At concurrency 32 one process saturates and p95 (221 ms) breaks the 100 ms SLO, so production should scale out on CPU utilisation rather than queue deeper.
 
 ---
 
@@ -268,7 +274,7 @@ PROJECT_SPEC.md   the experimental contract (definitions, splits, gates, change 
 
 ## Limitations and open issues
 
-1. **Champion selection uses the test set.** The v0.6 parsimony rule compares models with test-set CIs. It didn't change the champion this time, but the rule should move to validation-only.
+1. **The latency gate measures implementation, not just the model.** Linear models go through the generic pandas/scikit-learn path, so M2 (6.5 ms) is excluded and M1 (4.9 ms) sits just under the 5 ms budget, where it could flip between runs. A NumPy fast path for linear models would remove the overhead. It did not affect this result: M1 and M2 are significantly worse than M4 on validation anyway.
 2. **Hypothetical economics.** Thresholds and campaign profit depend on assumed costs and values, so they show the method, not a measured return.
 3. **CLV is not a revenue forecast.** It assumes stationary purchase rates and under-predicts a seasonal holdout window.
 4. **Uplift learners use a 3M-row subsample** of the 8.4M training rows (causal forest: 1M), fixed in spec v0.4 for compute. `--learning-curve` measures how much this costs.

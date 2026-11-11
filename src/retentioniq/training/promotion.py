@@ -6,6 +6,8 @@ A challenger is promoted only if every gate passes:
 3. No evaluation segment loses more than 0.03 PR-AUC.
 4. Data validation passed (ingestion reject gates and dbt tests).
 5. The serving schema contract holds (feature list matches the API's).
+6. Serving latency: single-record p95 on the API's scoring path is within the budget
+   (models/churn/latency.LATENCY_BUDGET_MS, derived from the §9.2 throughput SLO).
 With no champion yet, the reference is the M1 RFM-logistic baseline on the same test set.
 """
 
@@ -22,6 +24,7 @@ from sklearn.metrics import average_precision_score, brier_score_loss
 
 from retentioniq import SEED
 from retentioniq.features.retailrocket import ALL_FEATURES
+from retentioniq.models.churn.latency import LATENCY_BUDGET_MS, measure_latency_ms
 from retentioniq.models.churn.metrics import paired_bootstrap_diff
 
 NON_INFERIORITY_MARGIN = -0.005
@@ -153,6 +156,14 @@ def decide(artifacts: Path, model_dir: Path, dbt_target: Path) -> Decision:
         preds["visitor_id"].to_numpy(),
     )
     gates[3].detail = detail
+    lat = measure_latency_ms(bundle["model"], bundle["calibrator"], bundle["features"], preds)
+    gates.append(
+        GateResult(
+            "serving_latency",
+            lat["p95_ms"] <= LATENCY_BUDGET_MS,
+            {**lat, "budget_ms": LATENCY_BUDGET_MS},
+        )
+    )
     return Decision(all(g.passed for g in gates), challenger, reference, gates)
 
 

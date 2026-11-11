@@ -7,7 +7,7 @@ _Full tables and confidence intervals: [RESULTS.md](RESULTS.md)._
 - **Base rate:** 87.4% of test-snapshot visitors were inactive in the prediction window, so PR-AUC on the inactive class starts at ~0.874 for a random score. The minority who return are the commercially relevant group.
 - **Champion:** `M4_lightgbm` with test PR-AUC 0.9521 (95% CI [0.9493, 0.9550]), vs 0.9300 for the naive recency baseline.
 - **Returner view:** among the top 10% scored as most likely to return, the champion's lift over the returner base rate is 3.51x.
-- **Selection rule:** Best model by validation PR-AUC was M4_lightgbm. Walking down the ladder, M4_lightgbm is the simplest model whose test PR-AUC delta CI vs M4_lightgbm includes zero ([0.0000, 0.0000]).
+- **Selection rule:** M4_lightgbm has the highest validation PR-AUC (0.9475). Every simpler model is significantly worse on validation (2 checked), so it is kept. Not eligible (single-record p95 over the 5 ms budget): M2_logistic_full (6.5 ms), M3_random_forest (72.5 ms).
 - **Operating threshold (SCENARIO, hypothetical economics):** across 9 cost/value scenarios the cost-optimal threshold ranges 0.125-0.672; the most profitable scenario contacts 99.8% of visitors.
 - **Top drivers (mean |SHAP|):** `recency_vs_typical_gap`, `recency_days`, `tenure_days`.
 

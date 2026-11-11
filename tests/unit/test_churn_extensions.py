@@ -6,8 +6,8 @@ from retentioniq.models.churn.ladder import COMPLEXITY_ORDER
 from retentioniq.models.churn.metrics import (
     classification_metrics,
     cost_optimal_threshold,
-    paired_bootstrap_diff,
 )
+from retentioniq.models.churn.selection import select_champion
 
 
 def test_returner_metrics_minority_class() -> None:
@@ -44,42 +44,101 @@ def test_cost_optimal_threshold() -> None:
     assert high_cost_thr == 1.0
 
 
-def test_ladder_selection_rule_picks_simplest_not_significantly_worse() -> None:
-    rng = np.random.default_rng(42)
-    n = 200
+def _ladder_val_preds(n: int, seed: int) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
-
-    # Suppose M4 is best by validation, but M2 is virtually identical on test
-    base_signal = y * 0.4 + rng.normal(0, 0.1, n)
+    signal = y + rng.normal(0, 0.8, n)
     preds = {
-        "M0_naive_recency": np.full(n, 0.5),
-        "M1_logistic_rfm": np.clip(base_signal * 0.5, 0, 1),
-        "M2_logistic_full": np.clip(base_signal + rng.normal(0, 0.001, n), 0, 1),
-        "M3_random_forest": np.clip(base_signal + rng.normal(0, 0.005, n), 0, 1),
-        "M4_lightgbm": np.clip(base_signal, 0, 1),
-        "M5_pytorch_mlp": np.clip(base_signal - 0.01, 0, 1),
+        "M0_naive_recency": rng.random(n),  # no signal
+        "M1_logistic_rfm": signal + rng.normal(0, 2.0, n),  # weak
+        "M2_logistic_full": signal + rng.normal(0, 0.15, n),  # slightly worse, tied with the best
+        "M3_random_forest": signal + rng.normal(0, 0.1, n),
+        "M4_lightgbm": signal,  # best
+        "M5_pytorch_mlp": signal + rng.normal(0, 0.5, n),
+    }
+    return y, preds
+
+
+def test_selection_picks_simplest_model_tied_with_best_on_validation() -> None:
+    y, preds = _ladder_val_preds(2000, 1)
+    sel = select_champion(y, preds, COMPLEXITY_ORDER, n_boot=200, seed=0)
+    assert sel.best_by_validation == "M4_lightgbm"
+    assert sel.selected_champion == "M2_logistic_full"
+    assert [c["model"] for c in sel.candidates_checked][:2] == [
+        "M0_naive_recency",
+        "M1_logistic_rfm",
+    ]
+    assert not sel.candidates_checked[0]["tied_with_best"]
+    assert sel.candidates_checked[-1]["tied_with_best"]
+
+
+def test_selection_keeps_best_when_every_simpler_model_is_worse() -> None:
+    y, preds = _ladder_val_preds(2000, 2)
+    del preds["M2_logistic_full"], preds["M3_random_forest"]
+    sel = select_champion(y, preds, COMPLEXITY_ORDER, n_boot=200, seed=0)
+    assert sel.selected_champion == sel.best_by_validation == "M4_lightgbm"
+    assert all(not c["tied_with_best"] for c in sel.candidates_checked)
+    assert "significantly worse on validation" in sel.reasoning
+
+
+def test_selection_signature_accepts_no_test_data() -> None:
+    """Structural leakage guard: the selector can only be given validation arrays."""
+    import inspect
+
+    params = set(inspect.signature(select_champion).parameters)
+    assert params == {
+        "y_val",
+        "val_preds",
+        "complexity_order",
+        "groups",
+        "n_boot",
+        "seed",
+        "latency_p95_ms",
+        "latency_budget_ms",
     }
 
-    best_val_model = "M4_lightgbm"
-    best_idx = COMPLEXITY_ORDER.index(best_val_model)
 
-    chosen = best_val_model
-    for cand in COMPLEXITY_ORDER[:best_idx]:
-        lo, hi = paired_bootstrap_diff(
-            y,
-            preds[cand],
-            preds[best_val_model],
-            lambda yt, pt: float(np.mean(yt * pt)),
-            n_boot=100,
-            seed=42,
+def test_selection_excludes_models_over_the_latency_budget() -> None:
+    """A model tied on accuracy but too slow to serve cannot be champion (spec v0.6.3)."""
+    y, preds = _ladder_val_preds(2000, 1)
+    fast = dict.fromkeys(preds, 0.5)
+    without = select_champion(y, preds, COMPLEXITY_ORDER, n_boot=200, seed=0, latency_p95_ms=fast)
+    assert without.selected_champion == "M2_logistic_full"
+
+    slow = {**fast, "M2_logistic_full": 40.0, "M3_random_forest": 50.0}
+    sel = select_champion(y, preds, COMPLEXITY_ORDER, n_boot=200, seed=0, latency_p95_ms=slow)
+    assert sel.selected_champion == "M4_lightgbm"
+    assert {d["model"] for d in sel.ineligible} == {"M2_logistic_full", "M3_random_forest"}
+    assert "Not eligible" in sel.reasoning
+    # Ineligible models keep their validation score in the record, for reporting.
+    assert "M3_random_forest" in sel.val_pr_auc
+
+
+def test_selection_fails_loudly_when_nothing_is_servable() -> None:
+    y, preds = _ladder_val_preds(500, 3)
+    with pytest.raises(ValueError, match="no eligible"):
+        select_champion(
+            y, preds, COMPLEXITY_ORDER, n_boot=50, latency_p95_ms=dict.fromkeys(preds, 99.0)
         )
-        if lo <= 0.0 <= hi:
-            chosen = cand
-            break
 
-    # M2 is virtually identical to M4, so it should be picked over M4 because it is simpler
-    assert chosen in ("M1_logistic_rfm", "M2_logistic_full", "M3_random_forest")
-    assert COMPLEXITY_ORDER.index(chosen) < COMPLEXITY_ORDER.index("M4_lightgbm")
+
+def test_score_one_fast_path_matches_predict_proba() -> None:
+    """The booster fast path the API uses must give the same score as the sklearn path."""
+    from retentioniq.models.churn.ladder import GradientBoosting, Logistic
+    from retentioniq.models.churn.latency import measure_latency_ms, score_one
+
+    rng = np.random.default_rng(0)
+    feats = ["recency_days", "sessions_obs", "tenure_days"]
+    x = pd.DataFrame(rng.random((400, 3)), columns=feats)
+    y = (x["recency_days"] + rng.normal(0, 0.2, 400) > 0.5).astype(int).to_numpy()
+    ident = lambda p: p  # noqa: E731
+    for model in (GradientBoosting(features=feats), Logistic(features=feats, name="M2")):
+        model.fit(x[:300], y[:300], x[300:], y[300:])
+        ref = model.predict_proba(x[300:305])
+        fast = [score_one(model, ident, feats, r) for r in x[300:305].to_dict("records")]
+        np.testing.assert_allclose(fast, ref, rtol=1e-6)
+        lat = measure_latency_ms(model, ident, feats, x, n=30, warmup=5)
+        assert lat["n"] == 30 and lat["p95_ms"] >= lat["p50_ms"] > 0
 
 
 def test_torch_mlp_6_config_grid() -> None:

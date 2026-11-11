@@ -203,15 +203,26 @@ def churn() -> list[str]:
     if sel is not None:
         # Keys as written by training/churn.py (`selection_reasoning`).
         d = sel["delta_vs_best"]
+        # Artifacts from before spec v0.6.2 have no `selection_split`: their tie test used test.
+        split = sel.get("selection_split", "test (pre-v0.6.2 rule)")
+        ci = (
+            f" (95% CI: [{d['ci_low']:.4f}, {d['ci_high']:.4f}])"
+            if d.get("ci_low") is not None
+            else ""
+        )
         out += [
             "",
             "### Model selection rationale",
+            f"- **Selection data**: {split}",
             f"- **Best validation model**: `{sel['best_by_validation']}`",
             f"- **Selected champion**: `{sel['selected_champion']}`",
-            f"- **Delta vs best**: {d['delta_pr_auc']:.4f} "
-            f"(95% CI: [{d['ci_low']:.4f}, {d['ci_high']:.4f}])",
+            f"- **Delta vs best ({split})**: {d['delta_pr_auc']:.4f}{ci}",
             f"- **Rationale**: {sel['reasoning']}",
         ]
+        checked = sel.get("candidates_checked")
+        if checked:
+            out += ["", "Simpler models checked against the best (validation PR-AUC):", ""]
+            out.append(_table(pd.DataFrame(checked)))
 
     deltas = _csv("churn_pairwise_deltas.csv")
     if deltas is not None:

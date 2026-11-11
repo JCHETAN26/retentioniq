@@ -34,6 +34,7 @@ from retentioniq.models.churn.ladder import (
     RecencyBaseline,
     TorchMLP,
 )
+from retentioniq.models.churn.latency import measure_latency_ms
 from retentioniq.models.churn.metrics import (
     best_f1_threshold,
     bootstrap_ci,
@@ -42,6 +43,7 @@ from retentioniq.models.churn.metrics import (
     paired_bootstrap_diff,
     reliability_table,
 )
+from retentioniq.models.churn.selection import select_champion
 from retentioniq.tracking import log_run
 
 log = logging.getLogger(__name__)
@@ -119,11 +121,13 @@ def run_ladder(
     groups = test["visitor_id"].to_numpy()
 
     rows, calibration, preds = [], {}, {}
+    val_preds: dict[str, np.ndarray] = {}
     fitted: dict[str, tuple[ChurnModel, Calibrated]] = {}
     for model in ladder(include_torch=include_torch):
         log.info("fitting %s", model.name)
         model.fit(train, y_tr, val, y_va)
         p_val = model.predict_proba(val)
+        val_preds[model.name] = p_val
         cal = Calibrated(p_val, y_va)
         thr = best_f1_threshold(y_va, cal(p_val))
         p_test = cal(model.predict_proba(test))
@@ -144,7 +148,9 @@ def run_ladder(
         m["pr_auc_returners_ci_low"], m["pr_auc_returners_ci_high"] = bootstrap_ci(
             y_te, p_test, _ret_score, groups, N_BOOT, SEED
         )
-        m["val_pr_auc"] = float(average_precision_score(y_va, cal(p_val)))
+        # Raw scores: the isotonic map is fit on validation, so calibrated validation scores
+        # would be in-sample (and its ties change PR-AUC differently per model).
+        m["val_pr_auc"] = float(average_precision_score(y_va, p_val))
         rows.append({"model": model.name, **m, "params": json.dumps(model.params)})
         calibration[model.name] = {
             "isotonic_applied": cal.applied,
@@ -175,11 +181,7 @@ def run_ladder(
         comparison[f"delta_pr_auc_vs_{ref}_ci_low"] = lows
         comparison[f"delta_pr_auc_vs_{ref}_ci_high"] = highs
 
-    # Best model by validation PR-AUC
-    ranked = comparison.sort_values("val_pr_auc", ascending=False)
-    best_val_model = str(ranked.iloc[0]["model"])
-
-    # Compute pairwise deltas for all pairs where model_a is more complex than model_b
+    # Test-set pairwise deltas, for reporting only; selection below never sees them.
     pairwise_rows = []
     models_present = [m for m in COMPLEXITY_ORDER if m in comparison["model"].to_numpy()]
     for i, model_a in enumerate(models_present):
@@ -202,40 +204,46 @@ def run_ladder(
             )
     pd.DataFrame(pairwise_rows).to_csv(out / "churn_pairwise_deltas.csv", index=False)
 
-    # Complexity rule (spec v0.6 §5.5): walk down the ladder from best_val_model to find the
-    # simplest model whose paired bootstrap delta vs best_val_model has a CI spanning zero.
-    best_idx = models_present.index(best_val_model)
-    champion = best_val_model
-    champ_delta_ci = (0.0, 0.0)
-    for cand in models_present[:best_idx]:
-        lo, hi = paired_bootstrap_diff(
-            y_te, preds[cand], preds[best_val_model], average_precision_score, groups, N_BOOT, SEED
-        )
-        if lo <= 0.0 <= hi:
-            champion = cand
-            champ_delta_ci = (lo, hi)
-            break
-
-    comparison["is_champion"] = comparison["model"] == champion
-
-    champ_score = float(comparison.loc[comparison["model"] == champion, "pr_auc"].iloc[0])
-    best_score = float(comparison.loc[comparison["model"] == best_val_model, "pr_auc"].iloc[0])
-    delta_vs_best = {
-        "delta_pr_auc": champ_score - best_score,
-        "ci_low": champ_delta_ci[0],
-        "ci_high": champ_delta_ci[1],
-        "significant": bool(not (champ_delta_ci[0] <= 0 <= champ_delta_ci[1])),
+    # Serving-cost eligibility (spec v0.6.3): single-record latency on the API's code path,
+    # measured on validation rows.
+    latency = {
+        name: measure_latency_ms(mdl, cal_, ALL_FEATURES, val)
+        for name, (mdl, cal_) in fitted.items()
     }
+    comparison["serving_p50_ms"] = comparison["model"].map(lambda n: latency[n]["p50_ms"])
+    comparison["serving_p95_ms"] = comparison["model"].map(lambda n: latency[n]["p95_ms"])
+
+    # Complexity rule (spec §5.5, v0.6.2): decided on validation only.
+    selection = select_champion(
+        y_va,
+        val_preds,
+        COMPLEXITY_ORDER,
+        groups=val["visitor_id"].to_numpy(),
+        n_boot=N_BOOT,
+        seed=SEED,
+        latency_p95_ms={name: v["p95_ms"] for name, v in latency.items()},
+    )
+    champion = selection.selected_champion
+    comparison["is_champion"] = comparison["model"] == champion
+    pd.DataFrame(
+        {"visitor_id": val["visitor_id"].to_numpy(), LABEL: y_va}
+        | {name: p for name, p in val_preds.items()}
+    ).to_parquet(out / "churn_validation_predictions.parquet")
+
+    chosen = next(
+        (c for c in selection.candidates_checked if c["model"] == champion),
+        {"delta_pr_auc": 0.0, "ci_low": None, "ci_high": None, "tied_with_best": True},
+    )
     selection_reasoning = {
-        "best_by_validation": best_val_model,
-        "selected_champion": champion,
-        "delta_vs_best": delta_vs_best,
+        "selection_split": "validation",
+        **selection.to_dict(),
+        "delta_vs_best": {
+            "delta_pr_auc": chosen["delta_pr_auc"],
+            "ci_low": chosen["ci_low"],
+            "ci_high": chosen["ci_high"],
+            "significant": not chosen["tied_with_best"],
+        },
         "is_lightgbm": champion == "M4_lightgbm",
-        "reasoning": (
-            f"Best model by validation PR-AUC was {best_val_model}. Walking down the ladder, "
-            f"{champion} is the simplest model whose test PR-AUC delta CI vs {best_val_model} "
-            f"includes zero ([{champ_delta_ci[0]:.4f}, {champ_delta_ci[1]:.4f}])."
-        ),
     }
     (out / "churn_selection.json").write_text(json.dumps(selection_reasoning, indent=2) + "\n")
 

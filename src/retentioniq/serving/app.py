@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 from retentioniq import SPEC_VERSION, __version__
 from retentioniq.config import REPO_ROOT, settings
 from retentioniq.features.retailrocket import ALL_FEATURES
+from retentioniq.models.churn.latency import score_one
 from retentioniq.models.uplift.learners import FEATURES as UPLIFT_FEATURES
 
 MODEL_DIR = Path(str(REPO_ROOT / "data" / "models"))
@@ -162,18 +163,9 @@ def _score_churn(frame: pd.DataFrame) -> np.ndarray:
 
 
 def _score_row(values: dict[str, float]) -> float:
-    """Single-record fast path: NumPy row straight into the LightGBM booster.
-
-    Skips the per-request DataFrame and the scikit-learn wrapper (most of the latency for one
-    row). Falls back to the generic path for non-LightGBM champions.
-    """
+    """Single-record path; the same function gates models on latency (models/churn/latency)."""
     bundle = _require(state.churn, "churn")
-    booster = getattr(getattr(bundle["model"], "model_", None), "booster_", None)
-    if booster is None:
-        return float(_score_churn(pd.DataFrame([values]))[0])
-    row = np.array([[values[f] for f in bundle["features"]]], dtype=np.float64)
-    p = booster.predict(row, num_threads=1)
-    return float(np.clip(np.asarray(bundle["calibrator"](p), dtype=float), 0, 1)[0])
+    return score_one(bundle["model"], bundle["calibrator"], bundle["features"], values)
 
 
 def _drivers(frame: pd.DataFrame, k: int = 5) -> list[list[Driver]]:
