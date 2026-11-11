@@ -22,12 +22,16 @@ def score_one(
 ) -> float:
     """P(inactive) for one record (a mapping of feature -> value).
 
-    LightGBM models go straight to the booster with a NumPy row, skipping the per-request
-    DataFrame and the scikit-learn wrapper; every other model uses `predict_proba` on a
-    one-row DataFrame.
+    LightGBM models go straight to the booster with a NumPy row, and logistic models are
+    evaluated from their folded coefficients (`Logistic.linear_form`), both skipping the
+    per-request DataFrame and the scikit-learn wrapper; every other model uses
+    `predict_proba` on a one-row DataFrame.
     """
+    linear_form = getattr(model, "linear_form", None)
     booster = getattr(getattr(model, "model_", None), "booster_", None)
-    if booster is not None:
+    if linear_form is not None:
+        p = np.array([linear_form().predict_one(values)])
+    elif booster is not None:
         row = np.array([[values[f] for f in features]], dtype=np.float64)
         p = booster.predict(row, num_threads=1)
     else:

@@ -166,7 +166,7 @@ The three datasets are never joined. Each is its own case study with its own pip
 | **Data quality** | Pandera contracts at ingest: rejected rows go to `quarantine.rejected_records`, and a file over its reject budget rolls back. `dbt build` runs 75 models and tests |
 | **Experiment tracking** | MLflow (Postgres backend), with every ladder run logged |
 | **Promotion** | `retentioniq promote` registers a challenger only if all 6 gates pass, including serving latency (spec §9.1); the decision is written to `artifacts/promotion_decision.json` |
-| **Serving** | FastAPI with a LightGBM booster fast path and optional per-request TreeSHAP explanations |
+| **Serving** | FastAPI with NumPy fast paths (LightGBM booster, folded logistic coefficients) and optional per-request TreeSHAP explanations |
 | **Monitoring** | `retentioniq monitor`: feature and prediction PSI, missingness, ECE and freshness against the spec §9.3 thresholds. Prometheus scrapes `/metrics`; Grafana dashboard and alert rules are in `monitoring/` |
 | **Deployment** | Terraform for AWS ECS Fargate behind an ALB, ECR, a versioned S3 raw bucket, and CloudWatch alarms → SNS ([`infrastructure/aws`](infrastructure/aws/README.md)). Definitions only; not deployed as part of the reported run |
 | **BI** | `retentioniq publish` loads model outputs into Postgres `reporting.*`; `export-powerbi` writes a workbook for the Power BI service ([`analytics/powerbi`](analytics/powerbi/README.md)) |
@@ -274,7 +274,7 @@ PROJECT_SPEC.md   the experimental contract (definitions, splits, gates, change 
 
 ## Limitations and open issues
 
-1. **The latency gate measures implementation, not just the model.** Linear models go through the generic pandas/scikit-learn path, so M2 (6.5 ms) is excluded and M1 (4.9 ms) sits just under the 5 ms budget, where it could flip between runs. A NumPy fast path for linear models would remove the overhead. It did not affect this result: M1 and M2 are significantly worse than M4 on validation anyway.
+1. **The latency gate measures implementation, not just the model.** In the v0.6.3 run, linear models went through the generic pandas/scikit-learn path, so M2 (6.5 ms) was excluded and M1 (4.9 ms) sat just under the 5 ms budget. Since then they are scored from their folded coefficients (`LinearForm` in `models/churn/ladder.py`, about 0.006 ms per record, identical to the pipeline to 1e-9), so both would now be eligible. The champion would not change: M1 and M2 are significantly worse than M4 on validation. The latency column above still shows the v0.6.3 measurements until the next re-run.
 2. **Hypothetical economics.** Thresholds and campaign profit depend on assumed costs and values, so they show the method, not a measured return.
 3. **CLV is not a revenue forecast.** It assumes stationary purchase rates and under-predicts a seasonal holdout window.
 4. **Uplift learners use a 3M-row subsample** of the 8.4M training rows (causal forest: 1M), fixed in spec v0.4 for compute. `--learning-curve` measures how much this costs.
