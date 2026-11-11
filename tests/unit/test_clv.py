@@ -69,3 +69,62 @@ def test_fit_evaluate_clv_metrics(synthetic_orders: pd.DataFrame) -> None:
     assert len(by_segment) > 0
     assert (by_segment["n_customers"] > 0).all()
     assert (by_segment["total_predicted_spend_90d"] >= 0).all()
+
+
+@pytest.mark.filterwarnings("ignore:invalid value encountered in log:RuntimeWarning")
+def test_bgnbd_matches_lifetimes_and_handles_negative_hypergeometric() -> None:
+    """Closed form equals lifetimes where it is finite, and stays finite where it is NaN."""
+    from lifetimes import BetaGeoFitter
+
+    from retentioniq.analytics.clv import bgnbd_expected_purchases
+
+    # Parameters from the real Online Retail II fit: a + b - 1 < 0, so for x = 0 the
+    # hypergeometric term is negative and lifetimes' log() turns it into NaN.
+    params = {"r": 0.63094, "alpha": 62.21695, "a": 0.06982, "b": 0.66963}
+    x = np.array([0.0, 0.0, 0.0, 1.0, 3.0, 10.0])
+    tx = np.array([0.0, 0.0, 0.0, 40.0, 200.0, 300.0])
+    age = np.array([5.0, 120.0, 400.0, 100.0, 300.0, 310.0])
+
+    ours = bgnbd_expected_purchases(params, 90, x, tx, age)
+    assert np.isfinite(ours).all()
+    assert (ours >= 0).all()
+
+    bgf = BetaGeoFitter()
+    bgf.params_ = pd.Series(params)
+    ref = np.asarray(bgf.conditional_expected_number_of_purchases_up_to_time(90, x, tx, age))
+    finite = np.isfinite(ref)
+    assert not finite.all(), "fixture should exercise the lifetimes NaN case"
+    np.testing.assert_allclose(ours[finite], ref[finite], rtol=1e-9)
+
+
+def test_spend_model_falls_back_when_gamma_gamma_is_invalid() -> None:
+    """Heavy-tailed spend gives Gamma-Gamma q <= 1; the fallback must be positive and finite."""
+    from lifetimes.utils import summary_data_from_transaction_data
+
+    from retentioniq.analytics.clv import fit_spend_model
+
+    rng = np.random.default_rng(7)
+    rows = []
+    for cust in range(400):
+        scale = rng.pareto(0.8) * 20 + 5  # customer-level spend with an infinite-mean tail
+        for k in range(int(rng.integers(1, 6))):
+            rows.append((cust, pd.Timestamp("2024-01-01") + pd.Timedelta(days=30 * k), scale))
+    orders = pd.DataFrame(rows, columns=["customer_id", "order_date", "order_value"])
+    summary = summary_data_from_transaction_data(
+        orders, "customer_id", "order_date", monetary_value_col="order_value"
+    ).add_suffix("_cal")
+
+    pred, info = fit_spend_model(summary, orders)
+    assert info["spend_model"] == "empirical_bayes_lognormal"
+    assert info["gamma_gamma_valid"] is False
+    assert np.isfinite(pred).all()
+    assert (pred > 0).all()
+
+
+def test_fit_evaluate_clv_predictions_are_finite_and_non_negative(
+    synthetic_orders: pd.DataFrame,
+) -> None:
+    metrics, by_segment = fit_evaluate_clv(synthetic_orders, horizon_days=90)
+    assert metrics["spend_model"] in {"gamma_gamma", "empirical_bayes_lognormal"}
+    assert np.isfinite(metrics["clv_mae_spend"])
+    assert by_segment["avg_predicted_spend_90d"].ge(0).all()

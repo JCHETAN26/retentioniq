@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.6**
+Status: **v0.6.1**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -415,3 +415,4 @@ level, and hardware are recorded in `serving_benchmark.json`.
 | 0.4 | 2026-10-02 | §6.1: uplift learners fit on a 3M-row stratified subsample of the 8.4M training rows; validation and test unchanged. | Compute budget: one LightGBM fit on 8.4M rows took ~15 minutes on the 4-core environment, putting the 22-fit ladder at several hours. Decided before any uplift result was produced; applies identically to every strategy. |
 | 0.5 | 2026-10-03 | §6.3: the causal forest (listed "where computationally feasible") is added to the ladder, fit on a 1M-row stratified subsample of the training split; selection rule (validation Qini on visit) unchanged. | Completes the pre-registered estimator list. It was omitted from the first run; the forest's training cost makes 3M rows impractical on 4 cores. Its result is reported whether or not it wins. |
 | 0.6 | 2026-11-04 | §5.5: universal ladder complexity rule (simplest model within delta CI of validation best); 6-config grid for TorchMLP; §6.3: cross-fitted X-learner, S-learner diagnostics and full-column variant; §4.2: landmark survival model at day 7; customer lifetime value (BG/NBD + Gamma-Gamma). | Portfolio upgrade: principled parsimony across entire ladder, eliminates first-stage overfit in X-learner, adds honest landmark survival baseline and CLV analysis. |
+| 0.6.1 | 2026-11-10 | CLV: BG/NBD expected purchases evaluated in closed form without the log transform; spend submodel is Gamma-Gamma only when its population mean is finite (q > 1), otherwise an empirical-Bayes log-normal model on all calibration orders; Spearman reported as undefined (not 0) for constant inputs. | The v0.6 run produced NaN predictions for 304 one-time buyers (`lifetimes` takes the log of a hypergeometric term that is legitimately negative when a + b - 1 < 0) and negative spend for 1,643 customers (fitted q = 0.34). The spend-model rule depends only on fitted parameters, not on holdout outcomes. |
