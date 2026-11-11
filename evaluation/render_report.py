@@ -97,6 +97,43 @@ def customers() -> list[str]:
     return out
 
 
+def clv() -> list[str]:
+    m = _json("clv_metrics.json")
+    if not m:
+        return []
+    rows = [
+        {
+            "model": "BG/NBD + " + str(m.get("spend_model", "gamma_gamma")),
+            "purchase MAE": m["bgnbd_mae_purchases"],
+            "spend MAE": m.get("clv_mae_spend"),
+            "Spearman (spend)": m["spearman_clv_vs_actual"],
+            "predicted revenue": m["total_predicted_holdout_revenue"],
+        },
+        {
+            "model": "naive historical rate",
+            "purchase MAE": m["naive_mae_purchases"],
+            "spend MAE": m.get("naive_mae_spend"),
+            "Spearman (spend)": m["spearman_naive_vs_actual"],
+            "predicted revenue": m.get("total_naive_holdout_revenue"),
+        },
+    ]
+    out = [
+        "## Customer lifetime value (Online Retail II)",
+        "",
+        f"Calibration ends {m['calibration_end'][:10]}; evaluated on the next "
+        f"{m['holdout_days']} days for {m['n_customers']:,} customers "
+        f"(actual holdout revenue {m['total_actual_holdout_revenue']:,.0f}).",
+        "",
+        _table(pd.DataFrame(rows), ".4f"),
+    ]
+    if m.get("spend_model_reason"):
+        out += ["", f"Spend model: {m['spend_model_reason']}."]
+    seg = _csv("clv_by_segment.csv")
+    if seg is not None:
+        out += ["", "### CLV by RFM segment (calibration-time segment)", _table(seg, ".3f")]
+    return out
+
+
 def visitors() -> list[str]:
     seg = _json("visitor_segmentation.json")
     coh = _csv("visitor_category_cohorts.csv")
@@ -857,6 +894,38 @@ def _findings_uplift() -> list[str]:
     return out
 
 
+def _findings_clv() -> list[str]:
+    m = _json("clv_metrics.json")
+    if not m:
+        return [_missing("clv_metrics.json"), ""]
+    out = []
+    better = m["bgnbd_mae_purchases"] < m["naive_mae_purchases"]
+    out.append(
+        f"- **Purchase counts:** BG/NBD 90-day MAE {m['bgnbd_mae_purchases']:.3f} vs"
+        f" {m['naive_mae_purchases']:.3f} for the naive historical rate"
+        f" ({'better' if better else 'not better'}, {m['bgnbd_mae_reduction_pct']:+.1f}%)."
+    )
+    sc, sn = m.get("spearman_clv_vs_actual"), m.get("spearman_naive_vs_actual")
+    if sc is not None and sn is not None:
+        out.append(
+            f"- **Ranking customers by future spend:** Spearman {sc:.3f} vs {sn:.3f} naive"
+            f" ({'higher' if sc > sn else 'not higher'}); spend MAE"
+            f" {m.get('clv_mae_spend')} vs {m.get('naive_mae_spend')}."
+        )
+    if m.get("spend_model_reason"):
+        out.append(f"- **Spend model:** {m['spend_model_reason']}.")
+    ratio = m["total_predicted_holdout_revenue"] / m["total_actual_holdout_revenue"]
+    line = f"- **Aggregate:** predicts {_pct(ratio, 0)} of actual holdout revenue."
+    if ratio < 0.9:
+        line += (
+            " BG/NBD assumes stationary purchase rates, so a holdout window with a seasonal"
+            " peak is under-forecast; use it to rank customers, not as a revenue forecast."
+        )
+    out.append(line)
+    out.append("")
+    return out
+
+
 def generate_findings() -> None:
     """Write the executive summary docs/FINDINGS.md.
 
@@ -876,6 +945,8 @@ def generate_findings() -> None:
         *_findings_survival(),
         "## 3. Uplift targeting (Criteo randomized trial)",
         *_findings_uplift(),
+        "## 4. Customer lifetime value (Online Retail II)",
+        *_findings_clv(),
     ]
     out_path.write_text("\n".join(lines).rstrip() + "\n")
     print(f"wrote {out_path}")
@@ -904,7 +975,7 @@ def main() -> None:
         f"_Spec version(s): {sorted(specs)}; git: {sorted(shas)}._",
         "",
     ]
-    for section in (customers, visitors, churn, survival, uplift, serving):
+    for section in (customers, clv, visitors, churn, survival, uplift, serving):
         part = section()
         if part:
             lines += [*part, ""]
