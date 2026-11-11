@@ -1,4 +1,8 @@
-"""Generate small representative sample parquet datasets for portfolio notebooks.
+"""Generate small SYNTHETIC sample parquet datasets for the portfolio notebooks.
+
+The rows are drawn from a seeded random generator that mimics each real dataset's schema.
+They are not subsampled from the real data, so anything computed on them demonstrates the
+method only and must not be reported as a finding.
 
 Saves compact, standalone sample datasets to data/sample/:
 - data/sample/online_retail_sample.parquet (~3,000 customers)

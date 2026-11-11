@@ -14,7 +14,7 @@
   - *Infrastructure as Code:* Terraform `>= 1.6` (AWS ECS Fargate, ALB, ECR, S3, CloudWatch), Docker Compose v2
   - *Reporting & BI:* Microsoft Power BI (Service via multi-table Excel semantic model / Desktop via direct PostgreSQL connection, with versioned DAX measures)
 - **Development Timeline / Status:**
-  - Status: **Production / Benchmark-Verified** (Spec v0.5 frozen; Git commit SHA `33df0e1` / `1a8b06b`; all promotion gates passed and serving SLOs benchmark-verified).
+  - Status (2026-11-10): **v0.6 run complete on real data** (git `20f499a`; see `docs/RESULTS.md` and `docs/STATUS_REPORT.md` §13). Churn and serving results reproduce v0.5. The day-7 landmark claim is refuted (concordance 0.506 vs 0.507), and uplift beats propensity only on visits, without statistical significance. The benchmark tables in §4 below are from the earlier v0.5 run.
   - Implementation Progression: Scaffold & Spec Contract (`69cd817`) $\to$ Idempotent Ingestion & Contracts (`b1c0eef`) $\to$ dbt Warehouse & Feature Pipeline (`2f8e758`) $\to$ Customer Analytics, Survival & Uplift (`8b56af0`) $\to$ Web App, Monitoring & Airflow (`8ede41e`) $\to$ AWS Terraform & Power BI Publishing (`ab8cd02`) $\to$ Test Isolation & C++ Serving Optimization (`9512fff`) $\to$ Deterministic Fits & Final Benchmark Verification (`bcce5ce`, `33df0e1`).
 - **Repository Layout & Core Directories:**
   - `src/retentioniq/`: Production Python package containing core modules:
@@ -24,7 +24,7 @@
     - `models/`: M0–M5 churn model ladder, uplift meta-learners (S/T/X-Learners, Causal Forest), and metric evaluation routines.
     - `training/`: Training pipelines, feature ablation, TreeSHAP explanation, out-of-sample isotonic calibration, and champion promotion gates.
     - `analytics/`: RFM segmentation, unsupervised clustering comparisons, cohort matrices, and experiment inference.
-    - `serving/`: Sub-10ms FastAPI inference microservice with C++ booster fast-path and native TreeSHAP attribution.
+    - `serving/`: FastAPI inference microservice (v0.5: p99 2.7 ms at concurrency 1, 50 ms at concurrency 8) with C++ booster fast-path and native TreeSHAP attribution.
     - `monitoring/`: Population Stability Index (PSI), missingness drift, and ECE calibration monitors.
   - `dbt/`: Analytical warehouse pipeline (`staging` $\to$ `intermediate` $\to$ `marts`) with generic and custom data quality tests.
   - `apps/api/`: Minimal serving Dockerfile with stripped-down dependencies.
@@ -34,7 +34,7 @@
   - `monitoring/`: Prometheus scrape configs, system/model alert rules, and Grafana dashboard provisioning.
   - `infrastructure/`: AWS Terraform templates (ECS Fargate, ALB, S3, ECR), PostgreSQL initialization DDL, MLflow server image.
   - `evaluation/`: Closed-loop asynchronous load testing harness (`benchmark_serving.py`) and automated Markdown results renderer (`render_report.py`).
-  - `tests/`: 51 unit tests and end-to-end PostgreSQL integration suites.
+  - `tests/`: 66 unit tests (64 pre-existing + 2 report-renderer tests) and a PostgreSQL integration suite.
 
 ---
 
@@ -319,7 +319,7 @@ All numbers below are extracted verbatim from the repo's evaluation reports (`do
     4. dbt test integrity: zero failed or error nodes in `run_results.json`.
     5. Schema contract: exact 30-feature parity with production serving expectations.
 - **Testing Rigor:**
-  - *Unit Tests (51 passed):* Covers end-to-end API behavior, TreeSHAP exact log-odds parity against `shap.TreeExplainer`, bit-for-bit LightGBM determinism, Causal Forest responder ranking, Pandera contract coercion, and Qini area integration.
+  - *Unit Tests (66 passed, 2026-11-10):* Covers end-to-end API behavior, TreeSHAP exact log-odds parity against `shap.TreeExplainer`, bit-for-bit LightGBM determinism, Causal Forest responder ranking, Pandera contract coercion, and Qini area integration.
   - *Integration Tests:* Validates transaction rollback on reject-rate spikes and ledger idempotency against real running PostgreSQL containers (`tests/integration/test_ingest_postgres.py`).
   - *Warehouse Testing:* dbt test suite enforces primary keys, non-nullability, foreign-key relationships, and custom generic assertions (`between.sql`, `expression_is_true.sql`).
   - *System Closed-Loop Load Testing:* `evaluation/benchmark_serving.py` executes concurrent asynchronous HTTP load tests verifying p50/p95/p99 latency and zero 5xx error thresholds.
