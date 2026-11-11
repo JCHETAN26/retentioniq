@@ -8,11 +8,11 @@ RetentionIQ answers three retention questions on three public datasets, end to e
 |---|---|---|---|
 | Which visitors will go inactive? | [RetailRocket](https://www.kaggle.com/datasets/retailrocket/ecommerce-dataset) clickstream, 1.41M visitors | 6-model ladder (M0–M5), TreeSHAP, cost-based thresholds | LightGBM, PR-AUC **0.952** [0.949, 0.955] vs 0.930 naive recency |
 | How much will each customer spend next quarter? | [UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii), 5,852 customers | BG/NBD + validity-gated spend model | Spearman **0.579** vs 0.525 naive for ranking 90-day spend |
-| Whom should a campaign target? | [Criteo Uplift v2.1](https://huggingface.co/datasets/criteo/criteo-uplift), 13,979,592-row RCT | 8 targeting strategies, Qini, paired bootstrap | Uplift is **not** reliably better than propensity (see below) |
+| Whom should a campaign target? | [Criteo Uplift v2.1](https://huggingface.co/datasets/criteo/criteo-uplift), 13,979,592-row RCT | 8 targeting strategies, Qini, paired bootstrap | Uplift beats propensity on visits (p = 0.020), not on conversions or profit |
 
 The project was built to test three claims. It reports what the data said, including where the claims failed:
 
-1. **"Uplift targeting beats propensity targeting."** *Partly.* On visits, the selected S-learner's test Qini is higher (0.096 vs 0.086), but the paired-bootstrap difference is not significant (p = 0.096). On conversions, and on profit under the scenario economics, propensity wins.
+1. **"Uplift targeting beats propensity targeting."** *Partly.* On visits, the selected S-learner's test Qini is significantly higher (0.093 vs 0.086, paired bootstrap p = 0.020). On conversions propensity is ahead (0.185 vs 0.176, not significant), and on profit under the scenario economics the two are level. The visit result is sensitive to the data split: an earlier run, whose split depended on database row order, gave p = 0.096 (fixed in spec v0.6.4).
 2. **"A day-7 landmark beats first-session survival modeling."** *Refuted.* Held-out concordance is 0.506 vs 0.507.
 3. **"Unit-economics thresholds beat a fixed 0.5 cutoff."** *Method only.* The cost-optimal threshold moves from 0.13 to 0.67 across 9 cost/value scenarios, but the economics are hypothetical, so no gain is measured.
 
@@ -22,7 +22,7 @@ The project was built to test three claims. It reports what the data said, inclu
 
 ## Results
 
-All numbers come from one full run on the real datasets (spec v0.6, git `20f499a`, 4-core / 16 GB). Two stages were re-run after fixes: CLV under spec v0.6.1 (git `67d6365`), and churn + SHAP under spec v0.6.3 (git `f20edae`), with validation-only selection and a serving-latency gate. Every table and figure is rendered from `artifacts/` by `make report`: [`docs/RESULTS.md`](docs/RESULTS.md) has every table with confidence intervals, and [`docs/FINDINGS.md`](docs/FINDINGS.md) has the executive summary.
+All numbers come from one full run on the real datasets under spec v0.6.3 (git `6b16ab1`, 4-core / 16 GB), with validation-only champion selection and a serving-latency gate. Uplift was then re-run under spec v0.6.4 (git `2034f37`), which fixes the row order its seeded splits depend on; churn reproduced exactly across runs, uplift did not until that fix. Every table and figure is rendered from `artifacts/` by `make report`: [`docs/RESULTS.md`](docs/RESULTS.md) has every table with confidence intervals, and [`docs/FINDINGS.md`](docs/FINDINGS.md) has the executive summary.
 
 ### 1. Inactivity prediction (RetailRocket)
 
@@ -32,10 +32,10 @@ All numbers come from one full run on the real datasets (spec v0.6, git `20f499a
 
 | Model | Validation PR-AUC | Test PR-AUC [95% CI] | Brier | Scoring p95 |
 |---|---|---|---|---|
-| M0 naive recency | 0.9201 | 0.9300 [0.9268, 0.9334] | 0.1039 | 0.8 ms |
-| M1 logistic on RFM | 0.9301 | 0.9384 [0.9352, 0.9418] | 0.0987 | 4.9 ms |
-| M2 logistic, all 30 features | 0.9448 | 0.9496 [0.9468, 0.9528] | 0.0946 | 6.5 ms ✗ |
-| M3 random forest | 0.9471 | 0.9498 [0.9470, 0.9526] | 0.0938 | 72.5 ms ✗ |
+| M0 naive recency | 0.9201 | 0.9300 [0.9268, 0.9334] | 0.1039 | 0.7 ms |
+| M1 logistic on RFM | 0.9301 | 0.9384 [0.9352, 0.9418] | 0.0987 | 0.01 ms |
+| M2 logistic, all 30 features | 0.9448 | 0.9496 [0.9468, 0.9528] | 0.0946 | 0.01 ms |
+| M3 random forest | 0.9471 | 0.9498 [0.9470, 0.9526] | 0.0938 | 60.8 ms ✗ |
 | **M4 LightGBM (champion)** | **0.9475** | **0.9521 [0.9493, 0.9550]** | **0.0933** | **0.08 ms** |
 | M5 PyTorch MLP (6-config grid) | 0.9473 | 0.9514 [0.9487, 0.9545] | 0.0937 | 1.2 ms |
 
@@ -47,9 +47,9 @@ All numbers come from one full run on the real datasets (spec v0.6, git `20f499a
 
 - **What the model adds:** most of the gain comes from moving to the full feature set (M1 → M2), not from model capacity. Nonlinear models add about 0.003 PR-AUC on top. The top drivers are `recency_vs_typical_gap`, `recency_days` and `tenure_days`.
 - **Where it is useful:** among the 10% the model ranks most likely to *return*, the returner rate is 3.5× the base rate. That's the list a win-back team would actually work.
-- **Selection (validation only):** M4 has the best validation PR-AUC, and every *eligible* simpler model (M0, M1) is significantly worse on validation, so M4 is champion. M3 random forest is statistically tied with M4 on validation, but serves at 72.5 ms p95, so it is not eligible.
+- **Selection (validation only):** M4 has the best validation PR-AUC, and every *eligible* simpler model (M0, M1, M2) is significantly worse on validation, so M4 is champion. M3 random forest is statistically tied with M4 on validation, but serves at 60.8 ms p95, so it is not eligible.
 - **Why the latency rule exists:** under spec v0.6.2 (validation-only selection, no latency check), M3 was selected and promoted. The API then served 28 req/s with p95 384 ms, against an SLO of 200 req/s and p95 100 ms. Spec v0.6.3 adds serving-cost eligibility and a latency promotion gate; the change log records that the rule was added after seeing that result.
-- **Promotion:** M4 passed all 6 gates against the M1 reference: PR-AUC non-inferiority, Brier, per-segment degradation ≤ 0.03, dbt data validation, the schema contract and serving latency (0.08 ms p95 vs a 5 ms budget).
+- **Promotion:** M4 passed all 6 gates against the M1 reference: PR-AUC non-inferiority, Brier, per-segment degradation ≤ 0.03, dbt data validation, the schema contract and serving latency (0.11 ms p95 vs a 5 ms budget). The data-validation gate covered all 75 dbt nodes.
 
 ### 2. Time to inactivity (RetailRocket)
 
@@ -68,22 +68,23 @@ All numbers come from one full run on the real datasets (spec v0.6, git `20f499a
 
 | Strategy | Test Qini, visit | Test Qini, conversion | Uplift in top 1% (visit) |
 |---|---|---|---|
-| Response model (propensity) | 0.0864 | **0.1921** | 0.057 |
-| **S-learner LightGBM (selected)** | **0.0958** | 0.1643 | 0.168 |
-| Causal forest | 0.0911 | 0.1905 | 0.159 |
-| Two-model logistic | 0.0896 | 0.1867 | 0.176 |
-| X-learner (2-fold cross-fitted) | 0.0834 | 0.1320 | 0.151 |
-| T-learner LightGBM | 0.0733 | 0.1268 | 0.151 |
-| Random | −0.0054 | −0.0053 | 0.009 |
+| Response model (propensity) | 0.0858 | **0.1851** | 0.059 |
+| **S-learner LightGBM (selected)** | **0.0927** | 0.1763 | 0.172 |
+| Causal forest | 0.0927 | 0.1807 | 0.180 |
+| Two-model logistic | 0.0894 | 0.1832 | 0.182 |
+| X-learner (2-fold cross-fitted) | 0.0828 | 0.1438 | 0.162 |
+| T-learner LightGBM | 0.0764 | 0.1441 | 0.152 |
+| Random | −0.0054 | −0.0130 | 0.009 |
 
 | Qini curves (visit) | Decile calibration (visit) | Net value vs reach |
 |:---:|:---:|:---:|
 | ![Qini](docs/figures/uplift_qini_curves.png) | ![Calibration](docs/figures/uplift_calibration_deciles.png) | ![Net value](docs/figures/campaign_net_value_by_reach.png) |
 
-- **Overall ranking:** the S-learner's visit-Qini lead over propensity is not significant (paired bootstrap p = 0.096). Only the causal forest is significantly better than propensity (p = 0.004).
-- **Where uplift does differ:** at the very top of the ranking. In the top 1%, uplift learners find visitors whose treatment effect is about 3× what the response model's top 1% shows. Propensity catches up by 10–20% reach.
-- **Profit (SCENARIO: $0.01 per impression, $10 per conversion):** propensity peaks at $22.9k net (22% reach) vs $21.1k for the S-learner (19% reach).
-- **Recommendation:** for a broad campaign, propensity targeting is as good and much simpler. Uplift models only earn their cost when the budget covers a small top slice.
+- **Overall ranking:** on visits, both the selected S-learner (p = 0.020, Δ Qini 95% CI [0.0018, 0.0241]) and the causal forest (p < 0.001) are significantly better than propensity. On conversions no pairwise difference is significant.
+- **How robust that is:** before spec v0.6.4 the split depended on Postgres row order, and a run on a different split gave the S-learner p = 0.096. The effect is real but small, and its significance depends on which visitors land in the test set.
+- **Where uplift does differ:** at the very top of the ranking. In the top 1%, uplift learners find visitors whose treatment effect is about 3× what the response model's top 1% shows. Propensity catches up by about 20% reach.
+- **Profit (SCENARIO: $0.01 per impression, $10 per conversion):** propensity peaks at $21.4k net (22% reach) vs $21.3k for the S-learner (19% reach): effectively level.
+- **Recommendation:** for a broad campaign, propensity targeting earns about the same and is much simpler. Uplift models earn their cost when the budget covers a small top slice, or when the goal is visits rather than conversions.
 
 ### 4. Customer value (Online Retail II)
 
@@ -143,7 +144,7 @@ flowchart LR
         MART --> CLV["CLV<br/>BG/NBD + spend"]
     end
     subgraph Ops["Production"]
-        REG["MLflow registry<br/>(5 promotion gates)"] --> API["FastAPI<br/>/v1/churn · /v1/uplift"]
+        REG["MLflow registry<br/>(6 promotion gates)"] --> API["FastAPI<br/>/v1/churn · /v1/uplift"]
         API --> PROM["Prometheus + Grafana<br/>(SLO & drift alerts)"]
         API --> WEB["Next.js app"]
     end
@@ -190,13 +191,13 @@ Measured with `make benchmark` (spec v0.6.3 run, M4 champion) against the local 
 
 | Run | Throughput | p50 | p95 | p99 | Errors |
 |---|---|---|---|---|---|
-| predict, concurrency 1 | 474 req/s | 2.1 ms | 2.4 ms | 2.8 ms | 0 |
-| **predict, concurrency 8 (SLO run)** | **664 req/s** | **9.1 ms** | **29.2 ms** | **51.3 ms** | **0** |
-| predict + SHAP, concurrency 8 | 444 req/s | 19.8 ms | 35.1 ms | 41.2 ms | 0 |
-| predict, concurrency 32 | 446 req/s | 45.2 ms | 220.6 ms | 347.2 ms | 0 |
-| batch, concurrency 4 | 203 req/s | 19.2 ms | 25.5 ms | 29.2 ms | 0 |
+| predict, concurrency 1 | 481 req/s | 2.0 ms | 2.4 ms | 3.0 ms | 0 |
+| **predict, concurrency 8 (SLO run)** | **667 req/s** | **8.5 ms** | **30.4 ms** | **51.8 ms** | **0** |
+| predict + SHAP, concurrency 8 | 487 req/s | 15.0 ms | 27.7 ms | 34.3 ms | 0 |
+| predict, concurrency 32 | 447 req/s | 44.5 ms | 217.3 ms | 342.5 ms | 0 |
+| batch, concurrency 4 | 199 req/s | 21.2 ms | 32.0 ms | 36.2 ms | 0 |
 
-All spec §9.2 SLOs (p50 ≤ 25 ms, p95 ≤ 100 ms, p99 ≤ 250 ms, ≥ 200 req/s, < 0.1% 5xx) pass at concurrency 8. At concurrency 32 one process saturates and p95 (221 ms) breaks the 100 ms SLO, so production should scale out on CPU utilisation rather than queue deeper.
+All spec §9.2 SLOs (p50 ≤ 25 ms, p95 ≤ 100 ms, p99 ≤ 250 ms, ≥ 200 req/s, < 0.1% 5xx) pass at concurrency 8. At concurrency 32 one process saturates and p95 (217 ms) breaks the 100 ms SLO, so production should scale out on CPU utilisation rather than queue deeper.
 
 ---
 
@@ -235,10 +236,10 @@ Measured stage times on 4 cores (`artifacts/manifest.json`):
 
 | Stage | Time |
 |---|---|
-| uplift (14M rows) | 77 min |
+| uplift (14M rows) | 75 min |
 | churn ladder | 18 min |
-| customers | 55 s |
-| survival | 53 s |
+| customers | 57 s |
+| survival | 54 s |
 | everything else | < 20 s each |
 
 Plan on about 2 hours end to end, and more than 32 GB of free disk for the Python environment, raw data and the Postgres volume. Every stage is idempotent, and `retentioniq evaluate --only <stage…>` re-runs stages selectively, merging into the manifest.
@@ -274,7 +275,7 @@ PROJECT_SPEC.md   the experimental contract (definitions, splits, gates, change 
 
 ## Limitations and open issues
 
-1. **The latency gate measures implementation, not just the model.** In the v0.6.3 run, linear models went through the generic pandas/scikit-learn path, so M2 (6.5 ms) was excluded and M1 (4.9 ms) sat just under the 5 ms budget. Since then they are scored from their folded coefficients (`LinearForm` in `models/churn/ladder.py`, about 0.006 ms per record, identical to the pipeline to 1e-9), so both would now be eligible. The champion would not change: M1 and M2 are significantly worse than M4 on validation. The latency column above still shows the v0.6.3 measurements until the next re-run.
+1. **Uplift significance depends on the split.** The S-learner's visit-Qini lead over propensity is significant on the v0.6.4 split (p = 0.020) but was not on an earlier split (p = 0.096). Splits are now reproducible, but a repeated-split or cross-fitted comparison would show how often the lead is significant.
 2. **Hypothetical economics.** Thresholds and campaign profit depend on assumed costs and values, so they show the method, not a measured return.
 3. **CLV is not a revenue forecast.** It assumes stationary purchase rates and under-predicts a seasonal holdout window.
 4. **Uplift learners use a 3M-row subsample** of the 8.4M training rows (causal forest: 1M), fixed in spec v0.4 for compute. `--learning-curve` measures how much this costs.

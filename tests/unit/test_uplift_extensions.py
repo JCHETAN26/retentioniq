@@ -126,3 +126,31 @@ def test_campaign_optimal_reach_logic() -> None:
     opt_idx = int(np.argmax([r["net_value"] for r in strat_rows]))
     opt_reach = strat_rows[opt_idx]["reach"]
     assert 0.01 <= opt_reach <= 0.50
+
+
+def test_uplift_split_does_not_depend_on_load_order() -> None:
+    """Same rows in a different physical order must give the same seeded splits (spec v0.6.4)."""
+    from retentioniq.training.uplift import canonical_order, split
+
+    rng = np.random.default_rng(0)
+    n = 2000
+    df = pd.DataFrame(
+        {
+            "row_id": np.arange(1, n + 1),
+            "f0": rng.random(n),
+            "treatment": rng.integers(0, 2, n),
+            "visit": rng.integers(0, 2, n),
+        }
+    )
+    shuffled = df.sample(frac=1.0, random_state=1).reset_index(drop=True)
+    for a, b in zip(split(canonical_order(df)), split(canonical_order(shuffled)), strict=True):
+        pd.testing.assert_frame_equal(a, b)
+    # Without the canonical order, the same seed picks different rows.
+    assert not split(df)[2]["row_id"].equals(split(shuffled)[2]["row_id"])
+
+
+def test_canonical_order_rejects_duplicate_row_ids() -> None:
+    from retentioniq.training.uplift import canonical_order
+
+    with pytest.raises(ValueError, match="not unique"):
+        canonical_order(pd.DataFrame({"row_id": [1, 1, 2]}))
