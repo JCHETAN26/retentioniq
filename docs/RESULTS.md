@@ -96,9 +96,10 @@ Cutoffs: {'train': ['2015-06-06', '2015-06-13', '2015-06-20'], 'validation': ['2
 | M5_pytorch_mlp   |   0.9514 |          0.9487 |           0.9545 |             0.4057 |               0.1265 |                   0.4355 |              3.4419 |    0.7737 |         0.9769 |      0.1118 |  0.0937 | 0.0176 | False         |
 
 ### Model selection rationale
+- **Selection data**: test (pre-v0.6.2 rule)
 - **Best validation model**: `M4_lightgbm`
 - **Selected champion**: `M4_lightgbm`
-- **Delta vs best**: 0.0000 (95% CI: [0.0000, 0.0000])
+- **Delta vs best (test (pre-v0.6.2 rule))**: 0.0000 (95% CI: [0.0000, 0.0000])
 - **Rationale**: Best model by validation PR-AUC was M4_lightgbm. Walking down the ladder, M4_lightgbm is the simplest model whose test PR-AUC delta CI vs M4_lightgbm includes zero ([0.0000, 0.0000]).
 
 ### Pairwise model deltas (PR-AUC)

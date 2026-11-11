@@ -108,6 +108,7 @@ The point of the project is that its numbers can be trusted, so the evaluation i
   - Label windows of train, validation and test never overlap.
   - Survival covariates come from the first session only (avoiding immortal-time bias), and landmark covariates come from [origin, origin + 7d).
 - **Selection on validation, reporting on test:**
+  - The churn champion is chosen by a validation-only rule (`models/churn/selection.py`); its signature accepts no test data, and a unit test pins that.
   - Uplift learners are selected on validation Qini.
   - The X-learner's first stage is 2-fold cross-fitted, so counterfactuals are never imputed in-sample.
 - **Uncertainty everywhere:** bootstrap CIs on every headline metric, plus paired bootstrap tests for model-vs-model claims. A difference is only called "better" when its CI excludes zero.
@@ -268,7 +269,7 @@ PROJECT_SPEC.md   the experimental contract (definitions, splits, gates, change 
 
 ## Limitations and open issues
 
-1. **Champion selection uses the test set.** The v0.6 parsimony rule compares models with test-set CIs. It didn't change the champion this time, but the rule should move to validation-only.
+1. **Reported churn numbers predate the validation-only selection rule.** Spec v0.6.2 moved the champion tie test from test to validation. The published v0.6 run used the old rule; M4 was both the validation best and the champion, and no simpler model tied on test, so the champion is not expected to change, but that needs a re-run of the churn stage to confirm.
 2. **Hypothetical economics.** Thresholds and campaign profit depend on assumed costs and values, so they show the method, not a measured return.
 3. **CLV is not a revenue forecast.** It assumes stationary purchase rates and under-predicts a seasonal holdout window.
 4. **Uplift learners use a 3M-row subsample** of the 8.4M training rows (causal forest: 1M), fixed in spec v0.4 for compute. `--learning-curve` measures how much this costs.

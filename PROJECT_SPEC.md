@@ -1,6 +1,6 @@
 # RetentionIQ — Project Specification & Experimental Contract
 
-Status: **v0.6.1**
+Status: **v0.6.2**
 Any change to a definition, metric, split, or gate after modeling begins must be
 recorded in the [Change Log](#10-change-log) with the reason and date. Results
 produced under an older spec version must say which version they used.
@@ -248,7 +248,7 @@ category groups.
 
 ### 5.5 Rules for adding complexity
 
-- **Universal ladder complexity rule:** models are ordered by complexity (M0 < M1 < M2 < M3 < M4 < M5). Model selection begins at the model with the highest validation PR-AUC. Walking down the ladder, the platform selects the simplest model whose paired bootstrap test PR-AUC delta vs the best model has a CI that includes zero (i.e. not statistically significantly worse).
+- **Universal ladder complexity rule:** models are ordered by complexity (M0 < M1 < M2 < M3 < M4 < M5). Model selection begins at the model with the highest validation PR-AUC, computed on uncalibrated validation scores. Walking up the ladder from M0, the platform selects the simplest model whose paired bootstrap **validation** PR-AUC delta vs the best model has a 95% CI that includes zero (i.e. not statistically significantly worse). The test split plays no part in selection; it is scored once, after the champion is fixed.
 - If the selected champion is not LightGBM, serving retains the LightGBM export (`churn_lgbm.joblib`) for sub-10ms C++ booster and native TreeSHAP execution, while exporting `churn_champion.joblib` for the selected model.
 - Calibration (isotonic or Platt, fit on validation) is applied before serving if it lowers validation Brier score.
 - **TorchMLP fair tuning budget:** evaluated over a 6-configuration grid of hidden dimensions {(64, 32), (128, 64), (256, 128)} and dropout rates {0.1, 0.3} with early stopping on validation PR-AUC.
@@ -416,3 +416,4 @@ level, and hardware are recorded in `serving_benchmark.json`.
 | 0.5 | 2026-10-03 | §6.3: the causal forest (listed "where computationally feasible") is added to the ladder, fit on a 1M-row stratified subsample of the training split; selection rule (validation Qini on visit) unchanged. | Completes the pre-registered estimator list. It was omitted from the first run; the forest's training cost makes 3M rows impractical on 4 cores. Its result is reported whether or not it wins. |
 | 0.6 | 2026-11-04 | §5.5: universal ladder complexity rule (simplest model within delta CI of validation best); 6-config grid for TorchMLP; §6.3: cross-fitted X-learner, S-learner diagnostics and full-column variant; §4.2: landmark survival model at day 7; customer lifetime value (BG/NBD + Gamma-Gamma). | Portfolio upgrade: principled parsimony across entire ladder, eliminates first-stage overfit in X-learner, adds honest landmark survival baseline and CLV analysis. |
 | 0.6.1 | 2026-11-10 | CLV: BG/NBD expected purchases evaluated in closed form without the log transform; spend submodel is Gamma-Gamma only when its population mean is finite (q > 1), otherwise an empirical-Bayes log-normal model on all calibration orders; Spearman reported as undefined (not 0) for constant inputs. | The v0.6 run produced NaN predictions for 304 one-time buyers (`lifetimes` takes the log of a hypergeometric term that is legitimately negative when a + b - 1 < 0) and negative spend for 1,643 customers (fitted q = 0.34). The spend-model rule depends only on fitted parameters, not on holdout outcomes. |
+| 0.6.2 | 2026-11-10 | §5.5: the complexity rule's tie test uses paired bootstrap CIs on the validation split (clustered by visitor) instead of the test split; validation PR-AUC for selection uses uncalibrated scores. Validation predictions of every ladder model are saved for audit. | The v0.6 rule let test-set comparisons choose the champion, so the reported test PR-AUC was no longer an unbiased estimate. Calibrated validation scores were in-sample, because the isotonic map is fit on validation. Fixed before any v0.6.2 result was produced. |
