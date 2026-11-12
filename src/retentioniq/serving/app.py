@@ -51,7 +51,10 @@ LATENCY = Histogram(
     buckets=(0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
 )
 PREDICTIONS = Histogram(
-    "riq_churn_prediction", "Predicted P(inactive)", buckets=tuple(np.linspace(0.1, 1, 10))
+    "riq_churn_prediction",
+    "Predicted P(inactive)",
+    # Rounded so the `le` labels read 0.3, not 0.30000000000000004.
+    buckets=tuple(round(float(b), 1) for b in np.linspace(0.1, 1, 10)),
 )
 UPLIFT_SCORES = Histogram(
     "riq_uplift_score",
