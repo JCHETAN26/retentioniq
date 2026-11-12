@@ -1,4 +1,8 @@
+import os
+import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -133,3 +137,26 @@ def test_drivers_use_exact_tree_shap() -> None:
     for d in drivers:
         assert d.shap == pytest.approx(ref[0, ALL_FEATURES.index(d.feature)], abs=1e-6)
     assert drivers[0].feature == "recency_days"
+
+
+def test_metrics_aggregate_across_worker_processes(tmp_path: Path) -> None:
+    """With PROMETHEUS_MULTIPROC_DIR set, /metrics reports the requests of every worker process,
+    not only the one that answered the scrape (the API image runs two Uvicorn workers)."""
+    worker = (
+        "from fastapi.testclient import TestClient\n"
+        "from retentioniq.serving import app as api\n"
+        "c = TestClient(api.app)\n"
+        "for _ in range({n}): c.get('/health')\n"
+        "{tail}"
+    )
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}
+    for n in (3, 4):
+        subprocess.run([sys.executable, "-c", worker.format(n=n, tail="")], env=env, check=True)
+    scrape = worker.format(n=0, tail="print(c.get('/metrics').text)")
+    out = subprocess.run(
+        [sys.executable, "-c", scrape], env=env, check=True, capture_output=True, text=True
+    ).stdout
+    line = next(
+        ln for ln in out.splitlines() if ln.startswith('riq_requests_total{endpoint="/health"')
+    )
+    assert float(line.rsplit(" ", 1)[1]) == 7

@@ -12,6 +12,7 @@ Endpoints
 """
 
 import json
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,7 +23,14 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Histogram,
+    generate_latest,
+    multiprocess,
+)
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from retentioniq import SPEC_VERSION, __version__
@@ -399,4 +407,11 @@ def artifact(name: str, limit: int | None = None) -> Any:
 
 @app.get("/metrics")
 def metrics() -> Response:
+    # Under several Uvicorn workers each process keeps its own counters, so a scrape would see
+    # only the worker that answered it. With PROMETHEUS_MULTIPROC_DIR set (the API image does),
+    # every worker writes to shared files and the scrape aggregates all of them.
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        return Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
