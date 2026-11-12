@@ -17,6 +17,8 @@ services:
 
   mlflow:
     build: ./infrastructure/mlflow
+    # MLflow 3 rejects Host headers outside localhost/private IPs (DNS-rebinding guard), so
+    # containers reaching it as http://mlflow:5000 (Airflow) must be allowed explicitly.
     restart: unless-stopped
     depends_on:
       postgres:
@@ -28,6 +30,7 @@ services:
       --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-retentioniq}:${POSTGRES_PASSWORD:-retentioniq}@postgres:5432/mlflow
       --artifacts-destination /mlartifacts
       --serve-artifacts
+      --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
     volumes:
       - mlartifacts:/mlartifacts
 
