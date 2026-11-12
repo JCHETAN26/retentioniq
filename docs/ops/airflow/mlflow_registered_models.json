@@ -1,0 +1,29 @@
+{
+  "registered_models": [
+    {
+      "name": "retentioniq-churn",
+      "creation_timestamp": 1794456911958,
+      "last_updated_timestamp": 1794456912154,
+      "latest_versions": [
+        {
+          "name": "retentioniq-churn",
+          "version": "1",
+          "creation_timestamp": 1794456912154,
+          "last_updated_timestamp": 1794456912154,
+          "current_stage": "None",
+          "description": "",
+          "source": "models:/m-a085f9f0a8124a39a818c2ce2bf2bd3c",
+          "run_id": "5db31896ab9b432599d695942c72a037",
+          "status": "READY",
+          "run_link": ""
+        }
+      ],
+      "aliases": [
+        {
+          "alias": "champion",
+          "version": "1"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "tool": "evaluation/benchmark_serving.py (httpx async, closed loop)",
+  "target": "http://localhost:8000",
+  "hardware": {
+    "machine": "x86_64",
+    "cpus": 4,
+    "python": "3.11.18"
+  },
+  "runs": [
+    {
+      "endpoint": "/v1/churn/predict?explain=false",
+      "concurrency": 1,
+      "duration_s": 150.0,
+      "requests": 57759,
+      "throughput_rps": 385.1,
+      "p50_ms": 2.53,
+      "p95_ms": 3.02,
+      "p99_ms": 3.75,
+      "error_rate": 0.0
+    },
+    {
+      "endpoint": "/v1/churn/predict?explain=false",
+      "concurrency": 8,
+      "duration_s": 150.01,
+      "requests": 69520,
+      "throughput_rps": 463.4,
+      "p50_ms": 12.44,
+      "p95_ms": 43.75,
+      "p99_ms": 74.37,
+      "error_rate": 0.0
+    },
+    {
+      "endpoint": "/v1/churn/predict?explain=false",
+      "concurrency": 32,
+      "duration_s": 150.06,
+      "requests": 45584,
+      "throughput_rps": 303.8,
+      "p50_ms": 67.03,
+      "p95_ms": 318.85,
+      "p99_ms": 503.91,
+      "error_rate": 0.0
+    },
+    {
+      "endpoint": "/v1/churn/predict",
+      "concurrency": 8,
+      "duration_s": 150.01,
+      "requests": 46250,
+      "throughput_rps": 308.3,
+      "p50_ms": 24.96,
+      "p95_ms": 39.26,
+      "p99_ms": 47.99,
+      "error_rate": 0.0
+    },
+    {
+      "endpoint": "/v1/churn/batch",
+      "concurrency": 4,
+      "duration_s": 150.01,
+      "requests": 27391,
+      "throughput_rps": 182.6,
+      "p50_ms": 21.45,
+      "p95_ms": 28.08,
+      "p99_ms": 32.72,
+      "error_rate": 0.0
+    }
+  ],
+  "slo": {
+    "p50_ms": 25,
+    "p95_ms": 100,
+    "p99_ms": 250,
+    "error_rate": 0.001,
+    "throughput_rps": 200
+  },
+  "slo_check_single_c8": {
+    "p50": true,
+    "p95": true,
+    "p99": true,
+    "errors": true,
+    "throughput": true
+  }
+}

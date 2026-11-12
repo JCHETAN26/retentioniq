@@ -1,0 +1,22 @@
+{
+  "experiments": [
+    {
+      "experiment_id": "1",
+      "name": "retentioniq-churn",
+      "artifact_location": "mlflow-artifacts:/1",
+      "lifecycle_stage": "active",
+      "last_update_time": 1794455828386,
+      "creation_time": 1794455828386,
+      "workspace": "default"
+    },
+    {
+      "experiment_id": "0",
+      "name": "Default",
+      "artifact_location": "mlflow-artifacts:/0",
+      "lifecycle_stage": "active",
+      "last_update_time": 1794453943098,
+      "creation_time": 1794453943098,
+      "workspace": "default"
+    }
+  ]
+}
