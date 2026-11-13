@@ -73,7 +73,7 @@ Tasks of the successful run:
 | `validate_and_ingest` | 0.1 min | Every file skipped by the checksum ledger (unchanged since the load above) |
 | `transform_dbt` | 1.2 min | 75 nodes: PASS 74, WARN 1, ERROR 0. The warning is the warn-severity test on one online-retail row with quantity 0 |
 | `refresh_analytics` | 1.9 min | Customer intelligence + survival |
-| `features_train_evaluate` | 17.9 min | Attempt 1 failed (MLflow bug); attempt 2, the DAG's automatic retry, succeeded. Six-model ladder logged to MLflow |
+| `features_train_evaluate` | 17.9 min | Attempt 1 failed (MLflow bug). The compose fix was applied and MLflow restarted before the automatic retry; attempt 2 succeeded. Six-model ladder logged to MLflow |
 | `explain` | 0.1 min | SHAP |
 | `compare_champion_and_register` | 0.4 min | All 6 promotion gates passed; `M4_lightgbm` registered as `retentioniq-churn` v1, alias `champion` ([promotion_decision.json](airflow/promotion_decision.json), [mlflow_registered_models.json](airflow/mlflow_registered_models.json)) |
 
