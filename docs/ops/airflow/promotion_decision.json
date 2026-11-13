@@ -1,0 +1,65 @@
+{
+  "promote": true,
+  "challenger": "M4_lightgbm",
+  "reference": "production",
+  "gates": [
+    {
+      "name": "pr_auc_non_inferior",
+      "passed": true,
+      "detail": {
+        "delta_ci": [
+          0.0,
+          0.0
+        ],
+        "margin": -0.005
+      }
+    },
+    {
+      "name": "brier",
+      "passed": true,
+      "detail": {
+        "challenger": 0.0933059636331371,
+        "reference": 0.0933059636331371
+      }
+    },
+    {
+      "name": "segment_degradation",
+      "passed": true,
+      "detail": {
+        "pr_auc_drop": {
+          "new_visitors": 0.0,
+          "low_activity": 0.0,
+          "purchasers": 0.0,
+          "non_purchasers": 0.0
+        },
+        "max_allowed": 0.03
+      }
+    },
+    {
+      "name": "data_validation",
+      "passed": true,
+      "detail": {
+        "dbt_failed": [],
+        "dbt_nodes": 75
+      }
+    },
+    {
+      "name": "schema_contract",
+      "passed": true,
+      "detail": {
+        "n_features": 30
+      }
+    },
+    {
+      "name": "serving_latency",
+      "passed": true,
+      "detail": {
+        "p50_ms": 0.059,
+        "p95_ms": 0.082,
+        "n": 200,
+        "budget_ms": 5.0
+      }
+    }
+  ],
+  "decided_at": "2026-11-12T04:15:05.391259+00:00"
+}

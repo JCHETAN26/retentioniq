@@ -163,12 +163,12 @@ The three datasets are never joined. Each is its own case study with its own pip
 
 | Concern | Implementation |
 |---|---|
-| **Orchestration** | `make reproduce` locally. The Airflow DAG `retentioniq_training` runs weekly: `validate → transform → [train, analytics]`, then `train → explain → promote` |
+| **Orchestration** | `make reproduce` locally. The Airflow DAG `retentioniq_training` runs weekly: `validate → transform → [train, analytics]`, then `train → explain → promote`. Run end to end on an empty database on 2026-11-12: every task succeeded and the retrained champion was byte-identical to the published one ([docs/ops](docs/ops/README.md)) |
 | **Data quality** | Pandera contracts at ingest: rejected rows go to `quarantine.rejected_records`, and a file over its reject budget rolls back. `dbt build` runs 75 models and tests |
 | **Experiment tracking** | MLflow (Postgres backend), with every ladder run logged |
 | **Promotion** | `retentioniq promote` registers a challenger only if all 6 gates pass, including serving latency (spec §9.1); the decision is written to `artifacts/promotion_decision.json` |
 | **Serving** | FastAPI with NumPy fast paths (LightGBM booster, folded logistic coefficients) and optional per-request TreeSHAP explanations |
-| **Monitoring** | `retentioniq monitor`: feature and prediction PSI, missingness, ECE and freshness against the spec §9.3 thresholds. Prometheus scrapes `/metrics`; Grafana dashboard and alert rules are in `monitoring/` |
+| **Monitoring** | `retentioniq monitor`: feature and prediction PSI, missingness, ECE and freshness against the spec §9.3 thresholds. Prometheus scrapes `/metrics`; Grafana dashboard and alert rules are in `monitoring/`. Run under load against the API image: 0 errors over 246k requests, 5 alert rules loaded ([docs/ops](docs/ops/README.md)) |
 | **Deployment** | Terraform for AWS ECS Fargate behind an ALB, ECR, a versioned S3 raw bucket, and CloudWatch alarms → SNS ([`infrastructure/aws`](infrastructure/aws/README.md)). Definitions only; not deployed as part of the reported run |
 | **BI** | `retentioniq publish` loads model outputs into Postgres `reporting.*`; `export-powerbi` writes a workbook for the Power BI service ([`analytics/powerbi`](analytics/powerbi/README.md)) |
 | **CI** | GitHub Actions: ruff, mypy `--strict`, unit tests, integration tests, `dbt parse`, web typecheck/lint/build, SQL check and notebook execution |

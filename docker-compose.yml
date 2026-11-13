@@ -17,6 +17,8 @@ services:
 
   mlflow:
     build: ./infrastructure/mlflow
+    # MLflow 3 rejects Host headers outside localhost/private IPs (DNS-rebinding guard), so
+    # containers reaching it as http://mlflow:5000 (Airflow) must be allowed explicitly.
     restart: unless-stopped
     depends_on:
       postgres:
@@ -28,6 +30,7 @@ services:
       --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-retentioniq}:${POSTGRES_PASSWORD:-retentioniq}@postgres:5432/mlflow
       --artifacts-destination /mlartifacts
       --serve-artifacts
+      --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
     volumes:
       - mlartifacts:/mlartifacts
 
@@ -45,6 +48,9 @@ services:
     build: ./pipelines/airflow
     profiles: ["orchestration"]
     command: standalone
+    # Run as the host user (group 0, as the Airflow image expects) so tasks can write
+    # data/, artifacts/ and data/models in the bind-mounted repo. Set AIRFLOW_UID=$(id -u).
+    user: "${AIRFLOW_UID:-50000}:0"
     ports: ["8080:8080"]
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -52,6 +58,9 @@ services:
       RIQ_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-retentioniq}:${POSTGRES_PASSWORD:-retentioniq}@postgres:5432/${POSTGRES_DB:-retentioniq}
       RIQ_MLFLOW_TRACKING_URI: http://mlflow:5000
       POSTGRES_HOST: postgres
+      # validate_and_ingest downloads RetailRocket from Kaggle.
+      KAGGLE_USERNAME: ${KAGGLE_USERNAME:-}
+      KAGGLE_KEY: ${KAGGLE_KEY:-}
     volumes:
       - .:/opt/retentioniq
     depends_on: [postgres, mlflow]

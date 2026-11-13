@@ -1,0 +1,5 @@
+NAME                       IMAGE                    COMMAND                   SERVICE      CREATED          STATUS                    PORTS
+retentioniq-api-1          retentioniq-api          "sh -c 'rm -rf \"$PRO…"   api          10 minutes ago   Up 5 minutes (healthy)    0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+retentioniq-grafana-1      grafana/grafana:11.4.0   "/run.sh"                 grafana      28 minutes ago   Up 5 minutes              0.0.0.0:3001->3000/tcp, [::]:3001->3000/tcp
+retentioniq-postgres-1     postgres:16              "docker-entrypoint.s…"    postgres     28 minutes ago   Up 28 minutes (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+retentioniq-prometheus-1   prom/prometheus:v3.1.0   "/bin/prometheus --c…"    prometheus   5 minutes ago    Up 5 minutes              0.0.0.0:9090->9090/tcp, [::]:9090->9090/tcp
