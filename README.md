@@ -1,6 +1,28 @@
+<div align="center">
+
 # RetentionIQ
 
 **Retention decisions for e-commerce: who will lapse, who is worth keeping, and who a campaign actually moves.**
+
+[![CI](https://github.com/JCHETAN26/retentioniq/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JCHETAN26/retentioniq/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![mypy: strict](https://img.shields.io/badge/mypy-strict-2A6DB2)](https://mypy-lang.org/)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-FAB040?logo=pre-commit&logoColor=white)](.pre-commit-config.yaml)
+[![Spec](https://img.shields.io/badge/spec-v0.6.3-6E56CF)](PROJECT_SPEC.md)
+
+[![dbt](https://img.shields.io/badge/dbt-Postgres%2016-FF694B?logo=dbt&logoColor=white)](dbt/)
+[![LightGBM](https://img.shields.io/badge/LightGBM-champion-9ACD32)](src/retentioniq/models/churn/)
+[![MLflow](https://img.shields.io/badge/MLflow-registry-0194E2?logo=mlflow&logoColor=white)](src/retentioniq/training/promotion.py)
+[![FastAPI](https://img.shields.io/badge/FastAPI-serving-009688?logo=fastapi&logoColor=white)](src/retentioniq/serving/app.py)
+[![Airflow](https://img.shields.io/badge/Airflow-orchestration-017CEE?logo=apacheairflow&logoColor=white)](pipelines/airflow/dags/retentioniq_training.py)
+[![Prometheus](https://img.shields.io/badge/Prometheus%20%2B%20Grafana-monitoring-E6522C?logo=prometheus&logoColor=white)](monitoring/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](apps/web/)
+[![Terraform](https://img.shields.io/badge/Terraform-AWS%20ECS-7B42BC?logo=terraform&logoColor=white)](infrastructure/aws/)
+[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-6%20services-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+
+</div>
 
 RetentionIQ answers three retention questions on three public datasets, end to end: from raw downloads to a dbt warehouse, model ladders with pre-registered evaluation, a gated model registry, and a monitored low-latency API.
 
@@ -16,7 +38,20 @@ The project was built to test three claims. It reports what the data said, inclu
 2. **"A day-7 landmark beats first-session survival modeling."** *Refuted.* Held-out concordance is 0.506 vs 0.507.
 3. **"Unit-economics thresholds beat a fixed 0.5 cutoff."** *Method only.* The cost-optimal threshold moves from 0.13 to 0.67 across 9 cost/value scenarios, but the economics are hypothetical, so no gain is measured.
 
-> **Contents:** [Results](#results) · [How the evaluation is protected](#how-the-evaluation-is-protected) · [Architecture](#architecture) · [Production system](#production-system) · [Run it](#run-it) · [Repository map](#repository-map) · [Limitations](#limitations-and-open-issues)
+> **Contents:** [Quick start](#quick-start) · [Results](#results) · [How the evaluation is protected](#how-the-evaluation-is-protected) · [Architecture](#architecture) · [Tech stack](#tech-stack) · [Production system](#production-system) · [Run it](#run-it) · [Development](#development) · [Repository map](#repository-map) · [Documentation](#documentation) · [Limitations](#limitations-and-open-issues)
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/JCHETAN26/retentioniq.git && cd retentioniq
+make install   # Python 3.11 env via uv, all extras, dev tools, pre-commit hooks
+make demo      # run the 3 notebooks on bundled synthetic samples (no DB, no downloads)
+make check     # ruff + mypy --strict + unit tests
+```
+
+For the full real-data pipeline (Docker, Kaggle key, ~2 hours), see [Full reproduction](#full-reproduction-on-the-real-data).
 
 ---
 
@@ -158,6 +193,22 @@ The three datasets are never joined. Each is its own case study with its own pip
 
 ---
 
+## Tech stack
+
+| Layer | Tools |
+|---|---|
+| **Language & packaging** | Python 3.11 (`>=3.11,<3.13`), [uv](https://docs.astral.sh/uv/) with a locked `uv.lock`, Hatchling, Typer CLI (`retentioniq`) |
+| **Data & warehouse** | PostgreSQL 16, SQLAlchemy 2, psycopg 3, pandas / PyArrow, Pandera contracts, dbt-core + dbt-postgres |
+| **Modelling** | scikit-learn, LightGBM, XGBoost, PyTorch (CPU), lifelines (survival), lifetimes (BG/NBD), EconML (causal forest), SHAP, UMAP |
+| **MLOps** | MLflow tracking + model registry, Airflow DAG, gated promotion, drift monitoring (PSI, ECE, freshness) with Evidently HTML reports |
+| **Serving** | FastAPI + Uvicorn, NumPy fast paths, Prometheus client |
+| **Observability** | Prometheus 3.1 (scrape + alert rules), Grafana 11.4 (provisioned dashboard) |
+| **Frontend & BI** | Next.js 16, React 19, TypeScript 5, Tailwind CSS 4; Power BI (DAX measures) |
+| **Infrastructure** | Docker Compose, Terraform (AWS ECS Fargate, ALB, ECR, S3, CloudWatch, SNS), Dev Container |
+| **Quality** | Ruff (lint + format), mypy `--strict` with the pydantic plugin, pytest + pytest-cov, pre-commit, GitHub Actions |
+
+---
+
 ## Production system
 
 | Concern | Implementation |
@@ -170,7 +221,7 @@ The three datasets are never joined. Each is its own case study with its own pip
 | **Monitoring** | `retentioniq monitor`: feature and prediction PSI, missingness, ECE and freshness against the spec §9.3 thresholds. Prometheus scrapes `/metrics`; Grafana dashboard and alert rules are in `monitoring/` |
 | **Deployment** | Terraform for AWS ECS Fargate behind an ALB, ECR, a versioned S3 raw bucket, and CloudWatch alarms → SNS ([`infrastructure/aws`](infrastructure/aws/README.md)). Definitions only; not deployed as part of the reported run |
 | **BI** | `retentioniq publish` loads model outputs into Postgres `reporting.*`; `export-powerbi` writes a workbook for the Power BI service ([`analytics/powerbi`](analytics/powerbi/README.md)) |
-| **CI** | GitHub Actions: ruff, mypy `--strict`, unit tests, integration tests, `dbt parse`, web typecheck/lint/build, SQL check and notebook execution |
+| **CI** | GitHub Actions, 5 parallel jobs (see [Continuous integration](#continuous-integration)) |
 
 ### API
 
@@ -243,6 +294,66 @@ Measured stage times on 4 cores (`artifacts/manifest.json`):
 
 Plan on about 2 hours end to end, and more than 32 GB of free disk for the Python environment, raw data and the Postgres volume. Every stage is idempotent, and `retentioniq evaluate --only <stage…>` re-runs stages selectively, merging into the manifest.
 
+### Local services
+
+`make up` starts the stack defined in [`docker-compose.yml`](docker-compose.yml):
+
+| Service | URL | Purpose |
+|---|---|---|
+| Postgres 16 | `localhost:5432` | Raw, quarantine, dbt marts and `reporting.*` schemas |
+| MLflow | http://localhost:5000 | Experiment tracking and model registry |
+| API | http://localhost:8000 | FastAPI scoring service (`/docs` for OpenAPI) |
+| Airflow | http://localhost:8080 | `retentioniq_training` DAG |
+| Prometheus | http://localhost:9090 | Metrics and alert rules |
+| Grafana | http://localhost:3001 | Provisioned RetentionIQ dashboard |
+
+The web app runs separately: `cd apps/web && npm ci && npm run dev` (pages: risk, uplift, campaign, experiment, models).
+
+### Configuration
+
+Settings are read from `.env` (copy [`.env.example`](.env.example)) via pydantic-settings:
+
+| Variable | Purpose |
+|---|---|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credentials for the Compose Postgres container |
+| `RIQ_DATABASE_URL` | SQLAlchemy URL the pipeline and API connect to |
+| `RIQ_MLFLOW_TRACKING_URI` | MLflow server for tracking and the registry |
+| `RIQ_S3_BUCKET` | Optional raw-data bucket (AWS deployment) |
+| `KAGGLE_USERNAME` / `KAGGLE_KEY` | Needed only to download RetailRocket |
+
+---
+
+## Development
+
+```bash
+make install       # deps + pre-commit hooks
+make format        # ruff --fix + ruff format
+make check         # lint + mypy --strict + unit tests
+make up && make test-integration   # integration tests against Postgres
+make sql-check     # validate the analytical SQL showcases
+```
+
+Tests are marked so the default run needs no services or data: `integration` needs Docker (Postgres, MLflow), and `data` needs raw datasets in `data/raw`. A [Dev Container](.devcontainer/devcontainer.json) gives a ready-made environment.
+
+### Continuous integration
+
+Every push to `main` and every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+| Job | Checks |
+|---|---|
+| `lint-type-test` | `ruff check`, `ruff format --check`, `mypy --strict`, unit tests with coverage |
+| `integration` | Ingestion tests against a Postgres 16 service container |
+| `dbt-parse` | `dbt parse` on the full project |
+| `web` | Next.js typegen, `tsc --noEmit`, ESLint, production build |
+| `demo-and-sql` | SQL syntax check and execution of all three notebooks |
+
+### Contributing
+
+1. Branch from `main` and keep `make check` green.
+2. Changes to labels, splits, metrics, model ladders or selection rules go in [`PROJECT_SPEC.md`](PROJECT_SPEC.md) first, with a dated change-log entry and a reason.
+3. Never hand-edit numbers in `docs/RESULTS.md` or `docs/FINDINGS.md`; regenerate them with `make report`.
+4. Open a pull request; CI must pass before merge.
+
 ---
 
 ## Repository map
@@ -272,6 +383,22 @@ PROJECT_SPEC.md   the experimental contract (definitions, splits, gates, change 
 
 ---
 
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`PROJECT_SPEC.md`](PROJECT_SPEC.md) | Pre-registered definitions, splits, metrics, gates, SLOs and the change log |
+| [`docs/RESULTS.md`](docs/RESULTS.md) | Every result table with confidence intervals (generated) |
+| [`docs/FINDINGS.md`](docs/FINDINGS.md) | Executive summary (generated) |
+| [`docs/EDA.md`](docs/EDA.md) | Exploratory analysis of the three datasets |
+| [`docs/STATUS_REPORT.md`](docs/STATUS_REPORT.md) | Engineering handover: risks and next steps |
+| [`docs/KNOWLEDGE_BANK.md`](docs/KNOWLEDGE_BANK.md) | Project reference: identity, decisions and background |
+| [`sql/README.md`](sql/README.md) | Guide to the analytical SQL showcases |
+| [`infrastructure/aws/README.md`](infrastructure/aws/README.md) | Terraform deployment guide |
+| [`analytics/powerbi/README.md`](analytics/powerbi/README.md) | Power BI setup and DAX measures |
+
+---
+
 ## Limitations and open issues
 
 1. **The latency gate measures implementation, not just the model.** In the v0.6.3 run, linear models went through the generic pandas/scikit-learn path, so M2 (6.5 ms) was excluded and M1 (4.9 ms) sat just under the 5 ms budget. Since then they are scored from their folded coefficients (`LinearForm` in `models/churn/ladder.py`, about 0.006 ms per record, identical to the pipeline to 1e-9), so both would now be eligible. The champion would not change: M1 and M2 are significantly worse than M4 on validation. The latency column above still shows the v0.6.3 measurements until the next re-run.
@@ -282,3 +409,11 @@ PROJECT_SPEC.md   the experimental contract (definitions, splits, gates, change 
 6. **Survival** concordance near 0.5 means neither survival model should be used to rank individuals.
 
 The full engineering handover, with risks and the next-steps plan, is in [`docs/STATUS_REPORT.md`](docs/STATUS_REPORT.md).
+
+---
+
+## Datasets and license
+
+The datasets are public and are downloaded from their original sources under their own terms: [RetailRocket](https://www.kaggle.com/datasets/retailrocket/ecommerce-dataset) (Kaggle), [UCI Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii) (CC BY 4.0) and [Criteo Uplift v2.1](https://huggingface.co/datasets/criteo/criteo-uplift). No raw data is committed to this repository.
+
+This repository does not yet include a license file, so all rights are reserved by the author until one is added.
